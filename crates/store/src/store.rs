@@ -12,7 +12,7 @@ use std::pin::Pin;
 
 use crate::error::Error;
 use crate::types::{
-    Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    AuditEntry, Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
 };
 
 /// Boxed future shorthand for trait methods.
@@ -143,4 +143,21 @@ pub trait Store: Send + Sync {
         family_id: &'a str,
         now_secs: i64,
     ) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Appends an audit entry with its chain hashes.
+    fn append_audit<'a>(
+        &'a self,
+        ts: i64,
+        tenant_id: &'a str,
+        subject_id: &'a str,
+        event: &'a str,
+        prev_hash: &'a [u8],
+        hash: &'a [u8],
+    ) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Latest audit hash (`None` at genesis).
+    fn last_audit_hash(&self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Error>>;
+
+    /// Lists audit entries in sequence order (bounded, newest last).
+    fn list_audit(&self, limit: i64) -> BoxFuture<'_, Result<Vec<AuditEntry>, Error>>;
 }

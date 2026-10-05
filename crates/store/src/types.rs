@@ -153,6 +153,25 @@ pub struct NewRefresh {
     /// Expiry time (Unix seconds).
     pub expires_at: i64,
 }
+
+/// Audit log entry: hash-chained for tamper evidence.
+#[derive(Debug, Clone, FromRow)]
+pub struct AuditEntry {
+    /// Sequence number.
+    pub seq: i64,
+    /// Event time (Unix seconds).
+    pub ts: i64,
+    /// Acting tenant.
+    pub tenant_id: String,
+    /// Acting subject.
+    pub subject_id: String,
+    /// Event name (`mfa.verified`, ...).
+    pub event: String,
+    /// Previous entry hash (32 zero bytes at genesis).
+    pub prev_hash: Vec<u8>,
+    /// Entry hash.
+    pub hash: Vec<u8>,
+}
 #[derive(Debug, Clone)]
 pub struct NewFactor {
     /// Factor id (fresh UUID from `new_factor_id`).

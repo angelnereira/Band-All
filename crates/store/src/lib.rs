@@ -27,6 +27,6 @@ pub use postgres::PgStore;
 pub use sqlite::SqliteStore;
 pub use store::Store;
 pub use types::{
-    Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
-    new_factor_id, new_session_id,
+    AuditEntry, Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject,
+    Tenant, new_factor_id, new_session_id,
 };

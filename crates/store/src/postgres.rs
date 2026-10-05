@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
 use crate::types::{
-    Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    AuditEntry, Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
@@ -402,6 +402,61 @@ impl Store for PgStore {
             .execute(&self.pool)
             .await?;
             Ok(())
+        })
+    }
+
+    fn append_audit<'a>(
+        &'a self,
+        ts: i64,
+        tenant_id: &'a str,
+        subject_id: &'a str,
+        event: &'a str,
+        prev_hash: &'a [u8],
+        hash: &'a [u8],
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        let entry = (
+            ts,
+            tenant_id.to_string(),
+            subject_id.to_string(),
+            event.to_string(),
+            prev_hash.to_vec(),
+            hash.to_vec(),
+        );
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO audit_log (ts, tenant_id, subject_id, event, prev_hash, hash) VALUES ($1, $2, $3, $4, $5, $6)",
+            )
+            .bind(entry.0)
+            .bind(&entry.1)
+            .bind(&entry.2)
+            .bind(&entry.3)
+            .bind(&entry.4)
+            .bind(&entry.5)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn last_audit_hash(&self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Error>> {
+        Box::pin(async move {
+            let row: Option<(Vec<u8>,)> =
+                sqlx::query_as("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1")
+                    .fetch_optional(&self.pool)
+                    .await?;
+            Ok(row.map(|r| r.0))
+        })
+    }
+
+    fn list_audit(&self, limit: i64) -> BoxFuture<'_, Result<Vec<AuditEntry>, Error>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as::<_, AuditEntry>(
+                "SELECT seq, ts, tenant_id, subject_id, event, prev_hash, hash FROM audit_log ORDER BY seq ASC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows)
         })
     }
 }

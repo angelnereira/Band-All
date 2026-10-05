@@ -152,5 +152,34 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
         .ok_or(Error::CorruptRow)?;
     assert!(dead.revoked_at.is_some());
 
+    // Audit log: append-only with genesis hash.
+    assert!(store.last_audit_hash().await?.is_none());
+    store
+        .append_audit(
+            1_700_000_400,
+            &tenant.id,
+            &subject.id,
+            "mfa.verified",
+            &[0u8; 32],
+            &[1u8; 32],
+        )
+        .await?;
+    let tip = store.last_audit_hash().await?.ok_or(Error::CorruptRow)?;
+    assert_eq!(tip, vec![1u8; 32]);
+    store
+        .append_audit(
+            1_700_000_401,
+            &tenant.id,
+            &subject.id,
+            "token.revoked",
+            &[1u8; 32],
+            &[2u8; 32],
+        )
+        .await?;
+    let entries = store.list_audit(100).await?;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].event, "mfa.verified");
+    assert_eq!(entries[1].prev_hash, vec![1u8; 32]);
+
     Ok(())
 }
