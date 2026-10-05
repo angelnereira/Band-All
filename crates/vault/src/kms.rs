@@ -25,6 +25,12 @@ pub struct WrappedDek {
 }
 
 impl WrappedDek {
+    /// Reassembles a wrapped DEK from persisted columns.
+    #[must_use]
+    pub fn new(nonce: [u8; WRAP_NONCE_LEN], ciphertext: Vec<u8>) -> Self {
+        Self { nonce, ciphertext }
+    }
+
     /// Wrapping nonce.
     #[must_use]
     pub fn nonce(&self) -> &[u8; WRAP_NONCE_LEN] {

@@ -33,6 +33,26 @@ pub struct SealedSecret {
 }
 
 impl SealedSecret {
+    /// Reassembles a sealed secret from persisted columns (the inverse of
+    /// splitting it at seal time). Version and AAD checks still happen in
+    /// `Vault::open`.
+    #[must_use]
+    pub fn reassemble(
+        version: u8,
+        kek_id: String,
+        wrapped_dek: WrappedDek,
+        nonce: [u8; DATA_NONCE_LEN],
+        ciphertext: Vec<u8>,
+    ) -> Self {
+        Self {
+            version,
+            kek_id,
+            wrapped_dek,
+            nonce,
+            ciphertext,
+        }
+    }
+
     /// Format version (always 1 for now).
     #[must_use]
     pub fn version(&self) -> u8 {
