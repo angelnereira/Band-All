@@ -6,19 +6,30 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{Router, http::StatusCode, routing::get};
+use axum::{
+    Router,
+    http::StatusCode,
+    routing::{get, post},
+};
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 
 use crate::config::Config;
+use crate::enroll;
 use crate::error::Error;
 use crate::health;
 use crate::state::AppState;
+use crate::verify;
 
 /// Builds the router. MFA endpoints land here in later H3 commits.
 pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
     Router::new()
         .route("/healthz", get(health::healthz))
         .route("/readyz", get(health::readyz))
+        .route("/v1/factors/enroll/start", post(enroll::start))
+        .route("/v1/factors/enroll/confirm", post(enroll::confirm))
+        .route("/v1/mfa/verify", post(verify::mfa_verify))
+        .route("/v1/mfa/recover", post(verify::recover))
+        .route("/v1/verify", post(verify::s2s_verify))
         .fallback(health::not_found)
         .layer(TraceLayer::new_for_http())
         .layer(RequestBodyLimitLayer::new(body_limit_bytes))

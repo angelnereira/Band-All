@@ -53,6 +53,7 @@ Esta máquina ya tiene `cargo`/`rustc` 1.98.1 y `docker` 29.8.1. Si faltan `just
 - Prohibido `unwrap()`, `expect()`, `panic!`, indexado directo y `as` con pérdida fuera de tests; errores tipados (`thiserror`).
 - Tiempo inyectado (`Clock`); sin estado global mutable; tipos fuertes (`Step`, `Secret`, `TenantId`).
 - `async` solo en `api`, `store` y `sdk-axum`; el núcleo es síncrono.
+- Los tests de integración (`tests/`) son un crate aparte: repetir el `cfg_attr(test, allow(...))` en su cabecera o los lints del workspace los rechazan.
 - Errores al cliente: RFC 7807 sin detalles internos. `rustdoc` en toda API pública.
 - Dependencias: justificar antes de añadirlas (mantenimiento, licencia, tamaño); `cargo deny` y `cargo audit` deben pasar.
 
