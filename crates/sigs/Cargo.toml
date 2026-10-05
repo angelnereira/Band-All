@@ -9,3 +9,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# HMAC-SHA-256 request signatures. No custom crypto.
+hmac = "0.12"
+sha2 = "0.10"
+# Constant-time signature comparison.
+subtle = "2"
+# OS CSPRNG for nonces.
+getrandom = "0.2"
+# Typed errors.
+thiserror = "2"

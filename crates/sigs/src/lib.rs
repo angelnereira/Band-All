@@ -1,6 +1,7 @@
-//! bandall-sigs: HMAC request and webhook signatures.
+//! `bandall-sigs`: HMAC request/webhook signatures (blueprint §10).
 //!
-//! Placeholder crate created in H0; implementation lands in its milestone.
+//! Pure and time-injected. Nonce replay storage is the caller's
+//! responsibility via `NonceCache`.
 #![forbid(unsafe_code)]
 #![cfg_attr(
     test,
@@ -11,3 +12,11 @@
         clippy::indexing_slicing
     )
 )]
+
+pub mod error;
+pub mod sign;
+
+pub use error::Error;
+pub use sign::{
+    CLOCK_TOLERANCE_SECS, NonceCache, SignedRequest, canonical, fresh_nonce, sign, verify,
+};
