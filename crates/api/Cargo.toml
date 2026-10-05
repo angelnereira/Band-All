@@ -30,6 +30,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 utoipa = "5"
 # Constant-time service-key comparison.
 subtle = "2"
+# SHA-256 audit hash chain.
+sha2 = "0.10"
 # Secret hygiene for transient plaintext copies.
 secrecy = "0.10"
 # Ad-hoc error context (never surfaced to clients).
