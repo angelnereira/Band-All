@@ -35,3 +35,18 @@ Servicio BandAll (`api`, `vault`, `tokens`, `policy`, `store`, `sigs`), CLI y su
 - `LocalKms` (H2) protege contra robo de DB, pero no contra compromiso total del host: producción requiere KMS/HSM real (checklist de `BANDALL_ROADMAP.md` §4).
 - Sin pentest externo hasta H9.
 - Sin cifrado del lado del cliente ni backup: la app móvil no existe aún (H7).
+
+## Estado de implementación (v1, H0–H8)
+
+- H1–H4: núcleo TOTP, vault, store, API MFA, tokens y sesiones según diseño.
+- H5: `policy` (backoff/lockout), negación uniforme, auditoría encadenada,
+  revisión ASVS (`docs/asvs-l3-review.md`).
+- H6: firmas HMAC por cliente, forward-auth, `sdk-axum`, SDKs TS/Python
+  sobre vectores compartidos, demo legacy, ejemplo embebido.
+- H7: `authenticator-core` (cuentas, backup cifrado); UI nativa y UniFFI
+  pendientes (ADR-0006).
+- H8: `/metrics`, Helm, compose de observabilidad, k6, runbooks. Pendiente
+  de entorno real: SLOs medidos, DR ensayado, `cargo-vet`, SBOM, `cosign`,
+  TLS a Postgres/KMS.
+- Supuestos vigentes: TLS termina en el proxy; la DB puede comprometerse;
+  `LocalKms` solo vale para desarrollo/air-gapped.

@@ -55,6 +55,12 @@ enum Command {
         #[command(subcommand)]
         command: ApikeyCommand,
     },
+    /// Tenant operations (operator bootstrapping).
+    Tenant {
+        /// Tenant subcommand.
+        #[command(subcommand)]
+        command: TenantCommand,
+    },
     /// Prints an example configuration file.
     InitConfig,
     /// Prints the version.
@@ -74,6 +80,20 @@ enum AuditCommand {
         /// Maximum entries to check.
         #[arg(long, default_value = "100000")]
         limit: i64,
+    },
+}
+
+/// Tenant subcommands.
+#[derive(Debug, Subcommand)]
+enum TenantCommand {
+    /// Creates a tenant, printing its id.
+    Create {
+        /// Configuration file path.
+        #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
+        config: PathBuf,
+        /// Display name.
+        #[arg(long)]
+        name: String,
     },
 }
 
@@ -124,6 +144,9 @@ fn main() -> ExitCode {
                 prefix,
             } => apikey_create(&config, &tenant, &scopes, &prefix),
             ApikeyCommand::Revoke { config, key_id } => apikey_revoke(&config, &key_id),
+        },
+        Command::Tenant { command } => match command {
+            TenantCommand::Create { config, name } => tenant_create(&config, &name),
         },
         Command::InitConfig => {
             print!("{}", bandall_api::Config::example());
@@ -250,6 +273,45 @@ fn load_config(path: &std::path::Path) -> bandall_api::Config {
             std::process::exit(2);
         }
     }
+}
+
+/// Creates a tenant, printing its id (operator bootstrapping, e.g. load
+/// fixtures and the H6 demo).
+fn tenant_create(config_path: &std::path::Path, name: &str) -> ExitCode {
+    setup_logging();
+    let config = load_config(config_path);
+    let now_i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .unwrap_or(0);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("cannot start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(async {
+        match bandall_api::server::build_state(&config).await {
+            Ok((state, _)) => match state.store.create_tenant(name, now_i64).await {
+                Ok(tenant) => {
+                    println!("tenant_id: {}", tenant.id);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cannot create tenant: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("startup error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
 }
 
 /// Lowercase hex encoding for one-time key display.

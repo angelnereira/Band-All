@@ -25,6 +25,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H6: vectores de conformidad compartidos + SDKs TypeScript y Python (JWT offline y firmas HMAC, job `sdks` en CI).
 - H6: demo legacy sin modificar (compose + nginx `auth_request`), guía de forward-auth y ejemplo embebido offline.
 - H7 (núcleo): `authenticator-core` (cuentas, códigos con cuenta atrás, aviso de deriva, backup cifrado opcional, ADR-0006 nativo+UniFFI).
+- H8: `/metrics` Prometheus, chart Helm, compose de observabilidad, script k6, runbooks, escaneo Trivy en CI y política de releases. Pendiente de entorno real: SLOs medidos, DR ensayado, `cargo-vet`/SBOM/`cosign`, TLS a Postgres/KMS, pentest y WebAuthn (H9).
 
 ### Fixed
 

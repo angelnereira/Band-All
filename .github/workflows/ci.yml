@@ -117,3 +117,15 @@ jobs:
       - run: pip install cryptography
       - run: python -m unittest discover -s tests -v
         working-directory: sdks/python
+
+  trivy:
+    name: filesystem and dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
