@@ -34,6 +34,10 @@ overflow-checks = true
 # AGENTS.md "Seguridad": no unsafe code anywhere.
 [workspace.lints.rust]
 unsafe_code = "forbid"
+# Rustdoc on every public item (AGENTS.md "Codigo").
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+trivial_numeric_casts = "deny"
 
 # AGENTS.md "Codigo": no unwrap/expect/panic/indexing outside tests.
 # Tests opt out via #![cfg_attr(test, allow(...))] in each crate root.
@@ -49,15 +53,10 @@ indexing_slicing = "deny"
 cast_possible_truncation = "deny"
 cast_sign_loss = "deny"
 cast_possible_wrap = "deny"
-trivial_numeric_casts = "deny"
 # No leftover debug hooks or placeholders in shipped code.
 dbg_macro = "deny"
-dbg_impl = "deny"
 todo = "deny"
 unimplemented = "deny"
 # The CLI is the only place allowed to print; libraries stay silent.
 print_stdout = "deny"
 print_stderr = "deny"
-# Rustdoc on every public item (AGENTS.md "Codigo").
-missing_docs = "warn"
-missing_debug_implementations = "warn"

@@ -17,6 +17,18 @@ Actualizado: 2026-10-05. Lee esto antes de fiarte de "verde" o de "funciona".
 | `sdk-axum` (Layer) | unit | **sin ejecutar** |
 | SDK TS / Python (vectores compartidos) | node/unittest | **sin ejecutar** |
 
+**Regresión posterior:** tras añadir los lints nuevos de ADR-0007, incluso
+`totp-core` empezó a fallar con el mismo ICE. Se intentó aislarlo:
+
+- Bajar `serde` a 1.0.228 / 1.0.226 / 1.0.219: ICE en las tres.
+- Fijar `url` a 2.5.2 para eliminar la cadena ICU/zerofrom: el ICE se mudó a
+  `syn` y luego a `proc-macro2`.
+- Cambiar `syn` a la rama 2.x: sigue fallando.
+- `cargo clippy` en lugar de `cargo build`: mismo ICE.
+
+El `Cargo.lock` se restauró a su estado commiteado (sin pins experimentales):
+no queremos que un workaround del host contamine las versiones del proyecto.
+
 Razonamiento: los seis crates ligeros suman **49 tests verdes**. Los crates pesados
 (`store`, `api`, `cli`, `sdk-axum`) **compilan** (`cargo check` y, antes del
 incidente del toolchain, `clippy -D warnings`), pero sus tests no llegan a

@@ -20,11 +20,14 @@ para el build FIPS de H9.
    `panic = "abort"` evita depender de la tabla de landing pads en runtime.
    `[profile.test] overflow-checks = true` para que los tests sí detectan el
    desbordamiento que el binario sí aborta.
-3. **Lints additional del workspace**: `cast_possible_truncation`,
-   `cast_sign_loss`, `cast_possible_wrap`, `trivial_numeric_casts`,
-   `dbg_macro`, `dbg_impl`, `todo`, `unimplemented`, `print_stdout`,
-   `print_stderr` en `deny`; `missing_docs` y `missing_debug_implementations`
-   en `warn`.
+3. **Lints adicionales del workspace**: en `[workspace.lints.clippy]`,
+   `cast_possible_truncation`, `cast_sign_loss`, `cast_possible_wrap`,
+   `dbg_macro`, `todo`, `unimplemented`, `print_stdout` y `print_stderr` en
+   `deny`. En `[workspace.lints.rust]` (son lints de rustc, no de clippy):
+   `missing_docs` y `missing_debug_implementations` en `warn`, y
+   `trivial_numeric_casts` en `deny`.
+
+   Nota: `dbg_impl` **no existe**; el equivalente correcto es `dbg_macro`.
 4. **Excepciones**: `bandall-cli` re-habilita `print_stdout`/`print_stderr`
    (es el único binario y su salida es para el operador). Los tests mantienen
    su excepción via `cfg_attr(test, allow(...))`.

@@ -20,6 +20,17 @@ pub struct Account {
     secret: Secret,
 }
 
+impl std::fmt::Debug for Account {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Account")
+            .field("issuer", &self.issuer)
+            .field("name", &self.name)
+            .field("params", &self.params)
+            .field("secret", &"[redacted]")
+            .finish()
+    }
+}
+
 impl Account {
     /// Provisions from an `otpauth://` URI (QR scan result).
     pub fn import(uri: &str) -> Result<Self, Error> {
@@ -121,7 +132,7 @@ pub struct AccountSnapshot {
 }
 
 /// In-memory account list (device storage lives in the native shell).
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct AccountStore {
     accounts: Vec<Account>,
 }
