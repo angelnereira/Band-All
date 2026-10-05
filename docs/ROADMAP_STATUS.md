@@ -19,10 +19,13 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 
 ## Bloqueos que impiden cerrar H2–H6
 
-1. **GitHub CI no arranca**: cuenta bloqueada por facturación. Además, el
-   workflow era inválido (`defaults.run.timeout-minutes`), corregido en T1
-   (rama `ci/fix-workflow`): GitHub no llegaba a crear ningún job. Falta que
-   el humano confirme la facturación y que el primer run arranque.
+1. **GitHub CI no arranca**: cuenta bloqueada por facturación. El workflow ya
+   es válido (T1) y GitHub **sí crea los runs y los 8 jobs**, pero ninguno
+   arranca: terminan en 2 s con `steps=0` y sin runner asignado, igual en
+   `main` y en las ramas de T2/T3 (verificado por API el 2026-10-05). El
+   diagnóstico previo *"The job was not started because your account is locked
+   due to a billing issue"* sigue siendo la causa a resolver; no es un defecto
+   del workflow. GitGuardian sí pasa (no usa runners de Actions).
 2. **Entorno sin Postgres ni herramientas**: en el host actual (Android/proot)
    no hay `docker`, `just`, `cargo-deny` ni `cargo-audit`. Sí se ejecutó la
    suite completa del workspace (82 tests verdes), pero la **batería contra
