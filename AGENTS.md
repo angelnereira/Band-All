@@ -3,9 +3,8 @@
 Guía para agentes que trabajan en este repo. Manda sobre cualquier suposición: si algo choca con estas reglas, **detente y pregunta** (§ Cuándo detenerse).
 
 ## Estado del repo
-- **Solo hay documentación.** No existe código, `Cargo.toml`, CI, Docker ni `justfile`: todo se construye desde H0 siguiendo `BANDALL_ROADMAP.md`.
+- H0 en curso: workspace Cargo con los 10 crates `bandall-*` (esqueletos), `justfile`, CI, `deny.toml`, Dockerfile, compose dev y docs base. La lógica de cada crate llega con su hito según `BANDALL_ROADMAP.md`.
 - Canónicos: `BANDALL_BLUEPRINT.md` (diseño) y `BANDALL_ROADMAP.md` (hitos H0–H9 y gates).
-- `Blueprint — Servicio de seguridad TOTP en Rust.md` es un borrador obsoleto (nombre interno `sentinel`): **no usarlo ni tomarlo como referencia**; se elimina en H0.
 - Trabaja **solo en el hito activo**. MVP = H0–H4; H5 es obligatoria antes de producción.
 
 ## Proyecto
@@ -19,7 +18,7 @@ BandAll: servicio de seguridad TOTP (RFC 6238/4226) en Rust con autenticador off
 - Las dependencias fluyen **hacia** `totp-core`, nunca al revés. No crear crates sin ADR.
 
 ## Comandos
-Aún no existen (H0 crea `justfile` y CI). Objetivo, en este orden:
+`just check` = lo mismo que CI, en este orden:
 ```
 just check        # = lo mismo que CI: fmt + clippy + tests + deny + audit
 cargo fmt --all -- --check
@@ -31,7 +30,7 @@ cargo deny check && cargo audit
 docker build -f deploy/Dockerfile .
 docker compose -f deploy/compose/compose.yaml up --build
 ```
-Esta máquina ya tiene `cargo`/`rustc` 1.98.1 y `docker` 29.8.1; **`just`, `cargo-deny` y `cargo-audit` no están instalados** (`cargo install just cargo-deny cargo-audit`).
+Esta máquina ya tiene `cargo`/`rustc` 1.98.1 y `docker` 29.8.1. Si faltan `just`, `cargo-deny` o `cargo-audit`: `cargo install just cargo-deny cargo-audit --locked`. Nota: el usuario `droid` no está en el grupo `docker`; los comandos docker requieren `sudo` en esta máquina.
 
 ## Docker (decidido: dev + tests + CI + prod)
 - Builder `rust` + cargo-chef → runtime `gcr.io/distroless/cc-debian12:nonroot` fijado por digest.
