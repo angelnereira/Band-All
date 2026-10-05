@@ -7,6 +7,7 @@ use axum::{Json, extract::State, http::HeaderMap};
 use bandall_totp_core::Step;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::enroll::{now_unix, params_from_row, require_service_key, sealed_from_row, wrap_secret};
 use crate::error::Error;
@@ -21,7 +22,7 @@ const DRIFT_MAX: i64 = 5;
 
 /// `POST /v1/mfa/verify` body (step two of login; primary credential already
 /// checked by the caller or IdP).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct MfaVerifyRequest {
     /// Tenant id.
     pub tenant_id: String,
@@ -34,13 +35,22 @@ pub struct MfaVerifyRequest {
 }
 
 /// `POST /v1/mfa/verify` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MfaVerifyResponse {
     /// Always `true` on success (uniform denial otherwise).
     pub valid: bool,
 }
 
 /// Verifies a login second factor with drift learning and atomic anti-replay.
+#[utoipa::path(
+    post,
+    path = "/v1/mfa/verify",
+    request_body = MfaVerifyRequest,
+    responses(
+        (status = 200, description = "Code accepted", body = MfaVerifyResponse),
+        (status = 401, description = "Uniform denial")
+    )
+)]
 pub async fn mfa_verify(
     State(state): State<AppState>,
     Json(body): Json<MfaVerifyRequest>,
@@ -57,7 +67,7 @@ pub async fn mfa_verify(
 }
 
 /// `POST /v1/verify` body (S2S-authenticated).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct S2sVerifyRequest {
     /// Tenant id.
     pub tenant_id: String,
@@ -70,7 +80,7 @@ pub struct S2sVerifyRequest {
 }
 
 /// `POST /v1/verify` response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct S2sVerifyResponse {
     /// Always `true` on success.
     pub valid: bool,
@@ -79,6 +89,16 @@ pub struct S2sVerifyResponse {
 }
 
 /// S2S verification for existing systems.
+#[utoipa::path(
+    post,
+    path = "/v1/verify",
+    params(("x-service-key" = String, Header, description = "S2S service key")),
+    request_body = S2sVerifyRequest,
+    responses(
+        (status = 200, description = "Code accepted", body = S2sVerifyResponse),
+        (status = 401, description = "Uniform denial")
+    )
+)]
 pub async fn s2s_verify(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -100,7 +120,7 @@ pub async fn s2s_verify(
 }
 
 /// `POST /v1/mfa/recover` body.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RecoverRequest {
     /// Tenant id.
     pub tenant_id: String,
@@ -114,7 +134,7 @@ pub struct RecoverRequest {
 
 /// `POST /v1/mfa/recover` response. The factor is consumed: the caller must
 /// re-enrol afterwards.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RecoverResponse {
     /// Always `true` on success.
     pub valid: bool,
@@ -123,6 +143,15 @@ pub struct RecoverResponse {
 }
 
 /// Consumes a recovery code and retires the factor (forces re-enrolment).
+#[utoipa::path(
+    post,
+    path = "/v1/mfa/recover",
+    request_body = RecoverRequest,
+    responses(
+        (status = 200, description = "Recovery accepted", body = RecoverResponse),
+        (status = 401, description = "Uniform denial")
+    )
+)]
 pub async fn recover(
     State(state): State<AppState>,
     Json(body): Json<RecoverRequest>,

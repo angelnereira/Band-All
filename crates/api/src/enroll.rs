@@ -8,6 +8,7 @@ use bandall_store::{NewFactor, new_factor_id};
 use bandall_totp_core::{Algorithm, Otpauth, Period, Secret, TotpParams};
 use secrecy::zeroize::Zeroize;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::error::Error;
 use crate::state::AppState;
@@ -54,7 +55,7 @@ fn non_empty(name: &'static str, value: &str) -> Result<(), Error> {
 }
 
 /// `POST /v1/factors/enroll/start` body (S2S-authenticated).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct EnrollStartRequest {
     /// Tenant id (must exist).
     pub tenant_id: String,
@@ -74,7 +75,7 @@ pub struct EnrollStartRequest {
 
 /// `POST /v1/factors/enroll/start` response. The URI carries the secret and
 /// is never returned again.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct EnrollStartResponse {
     /// New factor id.
     pub factor_id: String,
@@ -85,6 +86,17 @@ pub struct EnrollStartResponse {
 }
 
 /// Starts enrolment: seals a fresh secret and returns the QR payload.
+#[utoipa::path(
+    post,
+    path = "/v1/factors/enroll/start",
+    params(("x-service-key" = String, Header, description = "S2S service key")),
+    request_body = EnrollStartRequest,
+    responses(
+        (status = 200, description = "Enrolment started", body = EnrollStartResponse),
+        (status = 400, description = "Bad request"),
+        (status = 401, description = "Unauthorized")
+    )
+)]
 pub async fn start(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -162,7 +174,7 @@ pub async fn start(
 }
 
 /// `POST /v1/factors/enroll/confirm` body.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct EnrollConfirmRequest {
     /// Tenant id.
     pub tenant_id: String,
@@ -175,7 +187,7 @@ pub struct EnrollConfirmRequest {
 }
 
 /// `POST /v1/factors/enroll/confirm` response. Recovery codes are shown once.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct EnrollConfirmResponse {
     /// Activated factor id.
     pub factor_id: String,
@@ -184,6 +196,15 @@ pub struct EnrollConfirmResponse {
 }
 
 /// Confirms enrolment with the first code and issues recovery codes.
+#[utoipa::path(
+    post,
+    path = "/v1/factors/enroll/confirm",
+    request_body = EnrollConfirmRequest,
+    responses(
+        (status = 200, description = "Factor activated", body = EnrollConfirmResponse),
+        (status = 401, description = "Uniform denial")
+    )
+)]
 pub async fn confirm(
     State(state): State<AppState>,
     Json(body): Json<EnrollConfirmRequest>,

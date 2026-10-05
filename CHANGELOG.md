@@ -15,6 +15,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H2: `store` con trait de persistencia, backends Postgres/SQLite, migraciones y batería de conformidad compartida (SQLite en memoria + Postgres en CI).
 - H3 (parcial): fundación del API HTTP (config TOML+env, estado compartido, probes `/healthz`+`/readyz`, errores RFC 7807, serve con apagado ordenado) y CLI `serve`/`migrate`/`init-config`.
 - H3: enrolamiento (`enroll/start`+`confirm` con expiración y códigos de recuperación) y verificación (`mfa/verify`, `verify` S2S, `recover`) con antirreplay atómico, deriva acotada y E2E en CI.
+- H3: contrato OpenAPI generado (`utoipa`, servido en `/openapi.json`) con test de rutas para SDKs de H6.
 
 ### Fixed
 

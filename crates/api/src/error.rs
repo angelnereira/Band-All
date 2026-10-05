@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// Machine-readable problem type URIs (stable contract).
 pub const PROBLEM_BAD_REQUEST: &str = "https://bandall.dev/problems/bad-request";
@@ -22,7 +23,7 @@ pub const PROBLEM_RATE_LIMITED: &str = "https://bandall.dev/problems/rate-limite
 pub const PROBLEM_INTERNAL: &str = "https://bandall.dev/problems/internal";
 
 /// RFC 7807 problem body.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct Problem {
     /// Stable problem type URI.
     #[serde(rename = "type")]

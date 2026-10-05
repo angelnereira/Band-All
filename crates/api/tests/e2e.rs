@@ -141,6 +141,20 @@ async fn full_mfa_cycle() {
             .await
             .is_err()
     );
+
+    // Codes outside the tolerance window are rejected.
+    let far = totp::generate(&secret, params, now_unix() + 3600).unwrap();
+    let outside = MfaVerifyRequest {
+        tenant_id: tenant.clone(),
+        subject_id: subject_id.clone(),
+        factor_id: factor_id.clone(),
+        code: far,
+    };
+    assert!(
+        mfa_verify(State(state.clone()), Json(outside))
+            .await
+            .is_err()
+    );
 }
 
 /// Re-opens the factor secret through the vault (test-only plumbing).

@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::enroll;
 use crate::error::Error;
 use crate::health;
+use crate::openapi;
 use crate::state::AppState;
 use crate::verify;
 
@@ -25,6 +26,7 @@ pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
     Router::new()
         .route("/healthz", get(health::healthz))
         .route("/readyz", get(health::readyz))
+        .route("/openapi.json", get(openapi::spec))
         .route("/v1/factors/enroll/start", post(enroll::start))
         .route("/v1/factors/enroll/confirm", post(enroll::confirm))
         .route("/v1/mfa/verify", post(verify::mfa_verify))

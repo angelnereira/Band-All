@@ -16,6 +16,7 @@ pub mod config;
 pub mod enroll;
 pub mod error;
 pub mod health;
+pub mod openapi;
 pub mod server;
 pub mod state;
 pub mod verify;

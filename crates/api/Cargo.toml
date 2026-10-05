@@ -24,6 +24,8 @@ toml = "0.8"
 # Observability.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Generated OpenAPI (served at /openapi.json for SDK codegen in H6).
+utoipa = "5"
 # Constant-time service-key comparison.
 subtle = "2"
 # Secret hygiene for transient plaintext copies.
