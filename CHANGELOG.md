@@ -18,6 +18,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H3: contrato OpenAPI generado (`utoipa`, servido en `/openapi.json`) con test de rutas para SDKs de H6.
 - H4 (parcial): `tokens` (JWT EdDSA estricto, refresh opaco, JWKS, ADRs 0004/0005) y sesiones en `store`.
 - H5 (parcial): `policy` (ventana deslizante, backoff exponencial, lockout) aplicado a verificación/enrolamiento/recuperación, negación uniforme con lastre temporal y 429.
+- H5: auditoría encadenada por hash (migración 4, eventos de seguridad, `bandall audit verify` con detección de manipulación).
 
 ### Fixed
 

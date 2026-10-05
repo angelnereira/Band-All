@@ -43,12 +43,32 @@ enum Command {
         #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
         config: PathBuf,
     },
+    /// Audit log operations.
+    Audit {
+        /// Audit subcommand.
+        #[command(subcommand)]
+        command: AuditCommand,
+    },
     /// Prints an example configuration file.
     InitConfig,
     /// Prints the version.
     Version,
     /// Liveness probe for container healthchecks (always exits 0).
     Healthcheck,
+}
+
+/// Audit subcommands.
+#[derive(Debug, Subcommand)]
+enum AuditCommand {
+    /// Verifies the hash chain, reporting the first bad sequence number.
+    Verify {
+        /// Configuration file path.
+        #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
+        config: PathBuf,
+        /// Maximum entries to check.
+        #[arg(long, default_value = "100000")]
+        limit: i64,
+    },
 }
 
 fn main() -> ExitCode {
@@ -58,6 +78,9 @@ fn main() -> ExitCode {
     }) {
         Command::Serve { config } => serve(&config),
         Command::Migrate { config } => migrate(&config),
+        Command::Audit { command } => match command {
+            AuditCommand::Verify { config, limit } => audit_verify(&config, limit),
+        },
         Command::InitConfig => {
             print!("{}", bandall_api::Config::example());
             ExitCode::SUCCESS
@@ -129,6 +152,46 @@ fn migrate(config_path: &std::path::Path) -> ExitCode {
             }
             Err(e) => {
                 eprintln!("migration error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
+}
+
+/// Verifies the audit hash chain, exiting non-zero on the first bad entry.
+fn audit_verify(config_path: &std::path::Path, limit: i64) -> ExitCode {
+    setup_logging();
+    let config = load_config(config_path);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("cannot start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(async {
+        match bandall_api::server::build_state(&config).await {
+            Ok((state, _)) => match state.store.list_audit(limit).await {
+                Ok(entries) => match bandall_api::audit::verify_chain(&entries) {
+                    Ok(()) => {
+                        println!("audit chain OK ({} entries)", entries.len());
+                        ExitCode::SUCCESS
+                    }
+                    Err(seq) => {
+                        eprintln!("audit chain BROKEN at seq {seq}");
+                        ExitCode::FAILURE
+                    }
+                },
+                Err(e) => {
+                    eprintln!("cannot read audit log: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("startup error: {e}");
                 ExitCode::FAILURE
             }
         }

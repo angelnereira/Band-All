@@ -124,6 +124,13 @@ async fn refresh_inner(state: &AppState, body: &RefreshRequest) -> Result<Json<T
         .await?
         .ok_or_else(Error::denied)?;
     if session.revoked_at.is_some() {
+        crate::audit::record(
+            state,
+            &session.tenant_id,
+            &session.subject_id,
+            crate::audit::event::TOKEN_REFRESH_DENIED,
+        )
+        .await?;
         return Err(Error::denied());
     }
     if !state
@@ -138,6 +145,13 @@ async fn refresh_inner(state: &AppState, body: &RefreshRequest) -> Result<Json<T
             .store
             .revoke_session(&entry.session_id, now_i64)
             .await?;
+        crate::audit::record(
+            state,
+            &session.tenant_id,
+            &session.subject_id,
+            crate::audit::event::TOKEN_REFRESH_DENIED,
+        )
+        .await?;
         return Err(Error::denied());
     }
     let next = RefreshToken::generate().map_err(|_| Error::denied())?;
@@ -161,6 +175,13 @@ async fn refresh_inner(state: &AppState, body: &RefreshRequest) -> Result<Json<T
     )
     .map_err(|_| Error::denied())?;
     let access_token = bandall_tokens::issue(&state.keys, &claims).map_err(|_| Error::denied())?;
+    crate::audit::record(
+        state,
+        &session.tenant_id,
+        &session.subject_id,
+        crate::audit::event::TOKEN_REFRESHED,
+    )
+    .await?;
     Ok(Json(TokenPair {
         access_token,
         refresh_token: next.plaintext,
@@ -205,6 +226,15 @@ pub async fn revoke(
             .store
             .revoke_session(&entry.session_id, now_i64)
             .await?;
+        if let Some(session) = state.store.get_session(&entry.session_id).await? {
+            crate::audit::record(
+                &state,
+                &session.tenant_id,
+                &session.subject_id,
+                crate::audit::event::TOKEN_REVOKED,
+            )
+            .await?;
+        }
     }
     Ok(Json(RevokeResponse { revoked: true }))
 }

@@ -78,6 +78,12 @@ pub async fn mfa_verify(
     )
     .await;
     gates::record(&state, &keys, now, outcome.is_ok());
+    let event = if outcome.is_ok() {
+        crate::audit::event::MFA_VERIFIED
+    } else {
+        crate::audit::event::MFA_DENIED
+    };
+    crate::audit::record(&state, &body.tenant_id, &body.subject_id, event).await?;
     outcome?;
     let keys = state.keys.clone();
     let pair = crate::token::issue_session(&state, &keys, &body.tenant_id, &body.subject_id, now)
@@ -145,6 +151,12 @@ pub async fn s2s_verify(
     )
     .await;
     gates::record(&state, &keys, now, outcome.is_ok());
+    let event = if outcome.is_ok() {
+        crate::audit::event::S2S_VERIFIED
+    } else {
+        crate::audit::event::S2S_DENIED
+    };
+    crate::audit::record(&state, &body.tenant_id, &body.subject_id, event).await?;
     let step = outcome?;
     Ok(Json(S2sVerifyResponse {
         valid: true,
@@ -197,6 +209,12 @@ pub async fn recover(
     gates::check(&state, &keys, now)?;
     let outcome = recover_inner(&state, &body).await;
     gates::record(&state, &keys, now, outcome.is_ok());
+    let event = if outcome.is_ok() {
+        crate::audit::event::RECOVERY_USED
+    } else {
+        crate::audit::event::RECOVERY_DENIED
+    };
+    crate::audit::record(&state, &body.tenant_id, &body.subject_id, event).await?;
     outcome
 }
 

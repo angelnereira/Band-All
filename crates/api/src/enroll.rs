@@ -166,6 +166,13 @@ pub async fn start(
         .await?;
 
     let uri = Otpauth::new(params, secret, body.issuer, body.account)?.to_uri();
+    crate::audit::record(
+        &state,
+        &body.tenant_id,
+        &subject.id,
+        crate::audit::event::ENROLL_STARTED,
+    )
+    .await?;
     Ok(Json(EnrollStartResponse {
         factor_id,
         otpauth_uri: uri,
@@ -217,6 +224,12 @@ pub async fn confirm(
     crate::gates::check(&state, &keys, now)?;
     let outcome = confirm_inner(&state, &body).await;
     crate::gates::record(&state, &keys, now, outcome.is_ok());
+    let event = if outcome.is_ok() {
+        crate::audit::event::ENROLL_CONFIRMED
+    } else {
+        crate::audit::event::ENROLL_DENIED
+    };
+    crate::audit::record(&state, &body.tenant_id, &body.subject_id, event).await?;
     outcome
 }
 

@@ -12,6 +12,7 @@
     )
 )]
 
+pub mod audit;
 pub mod config;
 pub mod enroll;
 pub mod error;
@@ -23,6 +24,7 @@ pub mod state;
 pub mod token;
 pub mod verify;
 
+pub use bandall_store::AuditEntry;
 pub use config::{Config, DatabaseKind};
 pub use error::Error;
 pub use state::AppState;
