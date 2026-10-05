@@ -9,3 +9,17 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Crypto: RustCrypto HMAC + SHA families. No custom crypto (AGENTS.md).
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+# Constant-time code comparison.
+subtle = "2"
+# Secret handling: zeroed on drop, redacted Debug.
+secrecy = "0.10"
+# OS CSPRNG for secret generation.
+getrandom = "0.2"
+# Strict Base32 (RFC 4648) encode/decode.
+data-encoding = "2"
+# Typed errors.
+thiserror = "2"
