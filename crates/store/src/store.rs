@@ -11,7 +11,9 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::error::Error;
-use crate::types::{Factor, NewFactor, RecoveryHash, Subject, Tenant};
+use crate::types::{
+    Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+};
 
 /// Boxed future shorthand for trait methods.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -96,4 +98,49 @@ pub trait Store: Send + Sync {
 
     /// Deletes a factor and its recovery codes (post-recovery re-enrolment).
     fn delete_factor<'a>(&'a self, factor_id: &'a str) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Creates a session with a fresh random id.
+    fn create_session(
+        &self,
+        tenant_id: &str,
+        subject_id: &str,
+        now_secs: i64,
+    ) -> BoxFuture<'_, Result<Session, Error>>;
+
+    /// Fetches a session by id.
+    fn get_session<'a>(
+        &'a self,
+        session_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Session>, Error>>;
+
+    /// Revokes a session (idempotent).
+    fn revoke_session<'a>(
+        &'a self,
+        session_id: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Persists a refresh-token hash.
+    fn store_refresh(&self, entry: NewRefresh) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Fetches a refresh entry by hash.
+    fn find_refresh<'a>(
+        &'a self,
+        hash: &'a str,
+    ) -> BoxFuture<'a, Result<Option<RefreshEntry>, Error>>;
+
+    /// Atomically consumes a refresh token. Returns `false` when already
+    /// used (reuse signal for theft detection).
+    fn use_refresh<'a>(
+        &'a self,
+        hash: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<bool, Error>>;
+
+    /// Revokes a whole refresh family (reuse detected).
+    fn revoke_family<'a>(
+        &'a self,
+        family_id: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>>;
 }

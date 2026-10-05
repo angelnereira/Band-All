@@ -98,6 +98,61 @@ pub struct RecoveryHash {
 pub fn new_factor_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
+
+/// Fresh random session or family id.
+#[must_use]
+pub fn new_session_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// Session row: local login session, revocable by id.
+#[derive(Debug, Clone, FromRow)]
+pub struct Session {
+    /// Session id (`sid` claim, revocation handle).
+    pub id: String,
+    /// Owning tenant.
+    pub tenant_id: String,
+    /// Owning subject.
+    pub subject_id: String,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+    /// Revocation time (`None` = live).
+    pub revoked_at: Option<i64>,
+}
+
+/// Refresh-token row: hash only, single-use with family revocation.
+#[derive(Debug, Clone, FromRow)]
+pub struct RefreshEntry {
+    /// SHA-256 hash of the opaque token (hex).
+    pub code_hash: String,
+    /// Rotation family (reuse revokes the whole family).
+    pub family_id: String,
+    /// Owning session.
+    pub session_id: String,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+    /// Expiry time (Unix seconds).
+    pub expires_at: i64,
+    /// Consumption time (`None` = live).
+    pub used_at: Option<i64>,
+    /// Family-revocation time (`None` = live).
+    pub revoked_at: Option<i64>,
+}
+
+/// New refresh token to persist.
+#[derive(Debug, Clone)]
+pub struct NewRefresh {
+    /// SHA-256 hash of the opaque token (hex).
+    pub code_hash: String,
+    /// Rotation family.
+    pub family_id: String,
+    /// Owning session.
+    pub session_id: String,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+    /// Expiry time (Unix seconds).
+    pub expires_at: i64,
+}
 #[derive(Debug, Clone)]
 pub struct NewFactor {
     /// Factor id (fresh UUID from `new_factor_id`).

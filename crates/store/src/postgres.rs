@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
-use crate::types::{Factor, NewFactor, RecoveryHash, Subject, Tenant};
+use crate::types::{
+    Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
 
@@ -277,6 +279,128 @@ impl Store for PgStore {
                 .bind(factor_id)
                 .execute(&self.pool)
                 .await?;
+            Ok(())
+        })
+    }
+
+    fn create_session(
+        &self,
+        tenant_id: &str,
+        subject_id: &str,
+        now_secs: i64,
+    ) -> BoxFuture<'_, Result<Session, Error>> {
+        let session = Session {
+            id: Uuid::new_v4().to_string(),
+            tenant_id: tenant_id.to_string(),
+            subject_id: subject_id.to_string(),
+            created_at: now_secs,
+            revoked_at: None,
+        };
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO sessions (id, tenant_id, subject_id, created_at, revoked_at) VALUES ($1, $2, $3, $4, NULL)",
+            )
+            .bind(&session.id)
+            .bind(&session.tenant_id)
+            .bind(&session.subject_id)
+            .bind(session.created_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(session)
+        })
+    }
+
+    fn get_session<'a>(
+        &'a self,
+        session_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Session>, Error>> {
+        Box::pin(async move {
+            let row = sqlx::query_as::<_, Session>(
+                "SELECT id, tenant_id, subject_id, created_at, revoked_at FROM sessions WHERE id = $1",
+            )
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row)
+        })
+    }
+
+    fn revoke_session<'a>(
+        &'a self,
+        session_id: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("UPDATE sessions SET revoked_at = $1 WHERE id = $2 AND revoked_at IS NULL")
+                .bind(now_secs)
+                .bind(session_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn store_refresh(&self, entry: NewRefresh) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO refresh_tokens (code_hash, family_id, session_id, created_at, expires_at, used_at, revoked_at) VALUES ($1, $2, $3, $4, $5, NULL, NULL)",
+            )
+            .bind(&entry.code_hash)
+            .bind(&entry.family_id)
+            .bind(&entry.session_id)
+            .bind(entry.created_at)
+            .bind(entry.expires_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn find_refresh<'a>(
+        &'a self,
+        hash: &'a str,
+    ) -> BoxFuture<'a, Result<Option<RefreshEntry>, Error>> {
+        Box::pin(async move {
+            let row = sqlx::query_as::<_, RefreshEntry>(
+                "SELECT code_hash, family_id, session_id, created_at, expires_at, used_at, revoked_at FROM refresh_tokens WHERE code_hash = $1",
+            )
+            .bind(hash)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row)
+        })
+    }
+
+    fn use_refresh<'a>(
+        &'a self,
+        hash: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<bool, Error>> {
+        Box::pin(async move {
+            let result = sqlx::query(
+                "UPDATE refresh_tokens SET used_at = $1 WHERE code_hash = $2 AND used_at IS NULL AND revoked_at IS NULL",
+            )
+            .bind(now_secs)
+            .bind(hash)
+            .execute(&self.pool)
+            .await?;
+            Ok(result.rows_affected() == 1)
+        })
+    }
+
+    fn revoke_family<'a>(
+        &'a self,
+        family_id: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query(
+                "UPDATE refresh_tokens SET revoked_at = $1 WHERE family_id = $2 AND revoked_at IS NULL",
+            )
+            .bind(now_secs)
+            .bind(family_id)
+            .execute(&self.pool)
+            .await?;
             Ok(())
         })
     }

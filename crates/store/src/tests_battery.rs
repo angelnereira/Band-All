@@ -3,7 +3,7 @@
 
 use crate::error::Error;
 use crate::store::Store;
-use crate::types::{NewFactor, new_factor_id};
+use crate::types::{NewFactor, NewRefresh, new_factor_id};
 
 fn dummy_factor(tenant_id: &str, subject_id: &str) -> NewFactor {
     NewFactor {
@@ -121,6 +121,36 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
             .is_none()
     );
     assert!(store.list_recovery_hashes(&factor.id).await?.is_empty());
+
+    // Sessions: create, refresh rotation, reuse signal, family revocation.
+    let session = store
+        .create_session(&tenant.id, &subject.id, 1_700_000_300)
+        .await?;
+    assert!(store.get_session(&session.id).await?.is_some());
+    assert!(store.get_session("missing").await?.is_none());
+    store
+        .store_refresh(NewRefresh {
+            code_hash: "rh-1".to_string(),
+            family_id: "fam-1".to_string(),
+            session_id: session.id.clone(),
+            created_at: 1_700_000_300,
+            expires_at: 1_700_000_300 + 604_800,
+        })
+        .await?;
+    let entry = store.find_refresh("rh-1").await?.ok_or(Error::CorruptRow)?;
+    assert_eq!(entry.family_id, "fam-1");
+    assert!(store.find_refresh("missing").await?.is_none());
+    assert!(store.use_refresh("rh-1", 1_700_000_301).await?);
+    assert!(!store.use_refresh("rh-1", 1_700_000_302).await?);
+    store.revoke_family("fam-1", 1_700_000_303).await?;
+    let revoked = store.find_refresh("rh-1").await?.ok_or(Error::CorruptRow)?;
+    assert!(revoked.revoked_at.is_some());
+    store.revoke_session(&session.id, 1_700_000_304).await?;
+    let dead = store
+        .get_session(&session.id)
+        .await?
+        .ok_or(Error::CorruptRow)?;
+    assert!(dead.revoked_at.is_some());
 
     Ok(())
 }
