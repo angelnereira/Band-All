@@ -9,3 +9,16 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Ed25519 signing for access tokens (JWT EdDSA, see ADR-0004).
+ed25519-dalek = "2"
+# SHA-256 for refresh-token hashes and key ids.
+sha2 = "0.10"
+# Base64url for JWT parts and JWKS.
+base64 = "0.22"
+# OS CSPRNG for keys and refresh tokens.
+getrandom = "0.2"
+# JSON claims.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Typed errors.
+thiserror = "2"

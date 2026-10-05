@@ -1,6 +1,6 @@
-//! bandall-tokens: Access/refresh tokens and JWKS.
-//!
-//! Placeholder crate created in H0; implementation lands in its milestone.
+//! `bandall-tokens`: Ed25519 access tokens (JWT), opaque refresh tokens and
+//! JWKS. No network, no database: persistence of hashes and sessions lives
+//! in `bandall-store`.
 #![forbid(unsafe_code)]
 #![cfg_attr(
     test,
@@ -11,3 +11,15 @@
         clippy::indexing_slicing
     )
 )]
+
+pub mod access;
+pub mod error;
+pub mod jwks;
+pub mod keys;
+pub mod refresh;
+
+pub use access::{ACCESS_TTL_SECS, Claims, issue, verify};
+pub use error::Error;
+pub use jwks::{Jwks, document};
+pub use keys::{KeyManager, KeyPair};
+pub use refresh::{REFRESH_TTL_SECS, RefreshToken, hash_plaintext};
