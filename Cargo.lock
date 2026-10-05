@@ -218,6 +218,12 @@ version = "0.1.0"
 [[package]]
 name = "bandall-sdk-axum"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "bandall-tokens",
+ "tokio",
+ "tower",
+]
 
 [[package]]
 name = "bandall-sigs"

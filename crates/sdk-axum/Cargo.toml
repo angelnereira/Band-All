@@ -9,3 +9,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+bandall-tokens = { path = "../tokens" }
+# HTTP types and middleware primitives.
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+
+[dev-dependencies]
+# Async test runtime.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
