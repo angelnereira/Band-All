@@ -15,13 +15,17 @@ use axum::{Json, extract::State, http::HeaderMap};
 use bandall_api::{
     AppState,
     enroll::{EnrollConfirmRequest, EnrollStartRequest, confirm, start},
+    token::{RefreshRequest, RevokeRequest, jwks, refresh, revoke},
     verify::{MfaVerifyRequest, RecoverRequest, S2sVerifyRequest, mfa_verify, recover, s2s_verify},
 };
 use bandall_store::{SqliteStore, Store};
+use bandall_tokens::{KeyManager, verify as verify_token};
 use bandall_totp_core::{Secret, TotpParams, totp};
 use bandall_vault::{LocalKms, Vault};
 
 const SERVICE_KEY: &str = "e2e-service-key-0123456789abcdef";
+const ISSUER: &str = "https://bandall.example";
+const AUDIENCE: &str = "my-app";
 const NOW_SKEW: u64 = 60;
 
 async fn setup() -> (AppState, String) {
@@ -30,8 +34,16 @@ async fn setup() -> (AppState, String) {
     let store: Arc<dyn Store> = Arc::new(sqlite);
     let kms = LocalKms::from_bytes("kek-e2e".to_string(), vec![3u8; 32]).unwrap();
     let vault = Arc::new(Vault::new(Arc::new(kms)));
+    let keys = Arc::new(KeyManager::generate().unwrap());
     let tenant = store.create_tenant("e2e", 1_700_000_000).await.unwrap();
-    let state = AppState::new(store, vault, SERVICE_KEY.to_string());
+    let state = AppState::new(
+        store,
+        vault,
+        keys,
+        ISSUER.to_string(),
+        AUDIENCE.to_string(),
+        SERVICE_KEY.to_string(),
+    );
     (state, tenant.id)
 }
 
@@ -330,4 +342,122 @@ async fn s2s_and_recovery() {
     )
     .await;
     assert!(gone.is_err());
+}
+
+#[tokio::test]
+async fn token_rotation_and_reuse_detection() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+
+    // Login issues a usable access token plus a refresh token.
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    let pair = mfa_verify(
+        State(state.clone()),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant.clone(),
+            subject_id: subject_id.clone(),
+            factor_id: factor_id.clone(),
+            code,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(pair.valid);
+    let claims = verify_token(
+        &state.keys,
+        &pair.access_token,
+        ISSUER,
+        AUDIENCE,
+        now_unix(),
+    )
+    .unwrap();
+    assert_eq!(claims.sub, subject_id);
+    assert_eq!(claims.tenant, tenant);
+
+    // Rotation yields a fresh pair; the old refresh token is spent.
+    let rotated = refresh(
+        State(state.clone()),
+        Json(RefreshRequest {
+            refresh_token: pair.refresh_token.clone(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_ne!(rotated.refresh_token, pair.refresh_token);
+
+    // Reusing the spent token burns the whole family.
+    let reuse = refresh(
+        State(state.clone()),
+        Json(RefreshRequest {
+            refresh_token: pair.refresh_token.clone(),
+        }),
+    )
+    .await;
+    assert!(reuse.is_err());
+    let dead = refresh(
+        State(state.clone()),
+        Json(RefreshRequest {
+            refresh_token: rotated.refresh_token.clone(),
+        }),
+    )
+    .await;
+    assert!(dead.is_err());
+
+    // JWKS exposes the signing key.
+    let jwks_doc = jwks(State(state.clone())).await.0;
+    assert_eq!(jwks_doc.keys.len(), 1);
+    assert_eq!(jwks_doc.keys[0].kid, state.keys.current().kid());
+}
+
+#[tokio::test]
+async fn token_revoke() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    let pair = mfa_verify(
+        State(state.clone()),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant.clone(),
+            subject_id: subject_id.clone(),
+            factor_id: factor_id.clone(),
+            code,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+
+    let answer = revoke(
+        State(state.clone()),
+        Json(RevokeRequest {
+            refresh_token: pair.refresh_token.clone(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(answer.revoked);
+    // Revoked family no longer refreshes; unknown tokens answer identically.
+    let gone = refresh(
+        State(state.clone()),
+        Json(RefreshRequest {
+            refresh_token: pair.refresh_token,
+        }),
+    )
+    .await;
+    assert!(gone.is_err());
+    let unknown = revoke(
+        State(state.clone()),
+        Json(RevokeRequest {
+            refresh_token: "unknown-token".to_string(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(unknown.revoked);
 }

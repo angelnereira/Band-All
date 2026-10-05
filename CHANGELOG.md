@@ -16,6 +16,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H3 (parcial): fundación del API HTTP (config TOML+env, estado compartido, probes `/healthz`+`/readyz`, errores RFC 7807, serve con apagado ordenado) y CLI `serve`/`migrate`/`init-config`.
 - H3: enrolamiento (`enroll/start`+`confirm` con expiración y códigos de recuperación) y verificación (`mfa/verify`, `verify` S2S, `recover`) con antirreplay atómico, deriva acotada y E2E en CI.
 - H3: contrato OpenAPI generado (`utoipa`, servido en `/openapi.json`) con test de rutas para SDKs de H6.
+- H4 (parcial): `tokens` (JWT EdDSA estricto, refresh opaco, JWKS, ADRs 0004/0005) y sesiones en `store`.
 
 ### Fixed
 
