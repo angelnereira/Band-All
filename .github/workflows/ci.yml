@@ -15,6 +15,22 @@ jobs:
   check:
     name: fmt + clippy + tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bandall
+          POSTGRES_PASSWORD: bandall-ci-only
+          POSTGRES_DB: bandall
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bandall -d bandall"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      BANDALL_TEST_PG: postgres://bandall:bandall-ci-only@localhost:5432/bandall
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
