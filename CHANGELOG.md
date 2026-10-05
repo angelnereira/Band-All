@@ -10,6 +10,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - Docker: imagen distroless no-root y stack de desarrollo con Postgres 16.
 - `justfile` con el gate `just check` y la política `deny.toml`.
 - Documentación base: `SECURITY.md`, `CONTRIBUTING.md`, ADR-0001, ADR-0002 y modelo de amenazas v0.
+- H1: `totp-core` puro (HOTP/TOTP RFC 4226/6238, Base32 estricto, `otpauth://`, verificación con ventana ±N y antirreplay matemático). Tests delegados al CI.
 
 ### Fixed
 
