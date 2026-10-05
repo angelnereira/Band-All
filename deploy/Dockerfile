@@ -15,8 +15,14 @@ RUN cargo chef cook --release --locked --recipe-path recipe.json
 COPY . .
 RUN cargo build --release --locked --bin bandall
 
-# Runtime: distroless, non-root, no shell. The healthcheck uses the binary itself.
-FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
+# Runtime: debian slim pinned by digest with a dedicated non-root user.
+# (ADR-0002: distroless cc-debian12:nonroot ships a 0-byte libgcc_s.so.1 on
+# arm64, so it cannot run our binary here. Re-evaluate in H5 hardening.)
+FROM debian:12-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS runtime
+RUN useradd --uid 65532 --create-home --shell /usr/sbin/nologin nonroot \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/bandall /usr/local/bin/bandall
 USER nonroot:nonroot
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 CMD ["/usr/local/bin/bandall", "healthcheck"]

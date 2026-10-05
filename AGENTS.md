@@ -33,7 +33,7 @@ docker compose -f deploy/compose/compose.yaml up --build
 Esta máquina ya tiene `cargo`/`rustc` 1.98.1 y `docker` 29.8.1. Si faltan `just`, `cargo-deny` o `cargo-audit`: `cargo install just cargo-deny cargo-audit --locked`. Nota: el usuario `droid` no está en el grupo `docker`; los comandos docker requieren `sudo` en esta máquina.
 
 ## Docker (decidido: dev + tests + CI + prod)
-- Builder `rust` + cargo-chef → runtime `gcr.io/distroless/cc-debian12:nonroot` fijado por digest.
+- Builder `rust` + cargo-chef → runtime `debian:12-slim` fijado por digest, usuario `nonroot` (uid 65532) creado en build, `ca-certificates` incluido. (ADR-0002: distroless `cc` queda diferido a H5 por un `libgcc_s` vacío en su variante arm64.)
 - non-root, rootfs read-only, `cap_drop: [ALL]`, `no-new-privileges`, límites de recursos.
 - La imagen no tiene shell ni curl: el healthcheck es el subcomando `bandall healthcheck`.
 - Secretos vía docker secrets o archivo con permisos 0400; nunca horneados en la imagen ni en `.env` versionados.
