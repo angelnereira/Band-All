@@ -1,0 +1,11 @@
+# Minimal BandAll config for the H6 demo (SQLite keeps the demo self-contained
+# for the database; Postgres runs alongside to mirror production wiring).
+listen = "0.0.0.0:8080"
+database = "sqlite"
+database_url = "sqlite:/data/bandall.db"
+kms_key_file = "/run/secrets/bandall-kek"
+kek_id = "kek-demo"
+service_key = "change-me-to-at-least-32-chars"
+token_issuer = "bandall-demo"
+token_audience = "demo-app"
+keys_dir = "/data/keys"

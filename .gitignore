@@ -5,3 +5,5 @@
 
 __pycache__/
 *.pyc
+# Local-only demo secrets (never commit the real files).
+deploy/compose/demo-kek.bin
