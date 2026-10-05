@@ -19,6 +19,7 @@ pub mod health;
 pub mod openapi;
 pub mod server;
 pub mod state;
+pub mod token;
 pub mod verify;
 
 pub use config::{Config, DatabaseKind};

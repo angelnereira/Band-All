@@ -5,6 +5,7 @@ use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
 use bandall_store::Store;
+use bandall_tokens::KeyManager;
 use bandall_vault::Vault;
 
 /// Application state shared by all handlers.
@@ -14,6 +15,12 @@ pub struct AppState {
     pub store: Arc<dyn Store>,
     /// Envelope vault.
     pub vault: Arc<Vault>,
+    /// Signing keys (current plus rotation overlap).
+    pub keys: Arc<KeyManager>,
+    /// Token issuer (`iss`).
+    pub issuer: String,
+    /// Token audience (`aud`).
+    pub audience: String,
     /// Static S2S service key (constant-time compared).
     service_key: Arc<str>,
 }
@@ -21,10 +28,20 @@ pub struct AppState {
 impl AppState {
     /// Builds state. The service key lives in an `Arc<str>` (no `String`
     /// clones on the hot path, never logged).
-    pub fn new(store: Arc<dyn Store>, vault: Arc<Vault>, service_key: String) -> Self {
+    pub fn new(
+        store: Arc<dyn Store>,
+        vault: Arc<Vault>,
+        keys: Arc<KeyManager>,
+        issuer: String,
+        audience: String,
+        service_key: String,
+    ) -> Self {
         Self {
             store,
             vault,
+            keys,
+            issuer,
+            audience,
             service_key: Arc::from(service_key),
         }
     }

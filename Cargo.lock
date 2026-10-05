@@ -175,6 +175,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bandall-store",
+ "bandall-tokens",
  "bandall-totp-core",
  "bandall-vault",
  "secrecy",

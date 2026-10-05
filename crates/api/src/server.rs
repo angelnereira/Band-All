@@ -19,6 +19,7 @@ use crate::error::Error;
 use crate::health;
 use crate::openapi;
 use crate::state::AppState;
+use crate::token;
 use crate::verify;
 
 /// Builds the router. MFA endpoints land here in later H3 commits.
@@ -32,6 +33,9 @@ pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
         .route("/v1/mfa/verify", post(verify::mfa_verify))
         .route("/v1/mfa/recover", post(verify::recover))
         .route("/v1/verify", post(verify::s2s_verify))
+        .route("/v1/token/refresh", post(token::refresh))
+        .route("/v1/token/revoke", post(token::revoke))
+        .route("/.well-known/jwks.json", get(token::jwks))
         .fallback(health::not_found)
         .layer(TraceLayer::new_for_http())
         .layer(RequestBodyLimitLayer::new(body_limit_bytes))
@@ -76,6 +80,7 @@ async fn shutdown_signal() {
 /// Builds shared state from configuration: store, vault and service key.
 pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error> {
     use bandall_store::{PgStore, SqliteStore};
+    use bandall_tokens::KeyManager;
     use bandall_vault::{LocalKms, Vault};
 
     let kms = Arc::new(
@@ -86,13 +91,19 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
         .map_err(|_| Error::Config("cannot load KMS key".to_string()))?,
     );
     let vault = Arc::new(Vault::new(kms));
+    let keys = Arc::new(
+        KeyManager::load_or_generate(std::path::Path::new(&config.keys_dir))
+            .map_err(|_| Error::Config("cannot load signing keys".to_string()))?,
+    );
     let service_key = config.service_key.clone();
+    let issuer = config.token_issuer.clone();
+    let audience = config.token_audience.clone();
     match config.database {
         crate::config::DatabaseKind::Sqlite => {
             let store = SqliteStore::connect(&config.database_url).await?;
             store.migrate().await?;
             Ok((
-                AppState::new(Arc::new(store), vault, service_key),
+                AppState::new(Arc::new(store), vault, keys, issuer, audience, service_key),
                 StoreKind::Sqlite,
             ))
         }
@@ -100,7 +111,7 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
             let store = PgStore::connect(&config.database_url).await?;
             store.migrate().await?;
             Ok((
-                AppState::new(Arc::new(store), vault, service_key),
+                AppState::new(Arc::new(store), vault, keys, issuer, audience, service_key),
                 StoreKind::Postgres,
             ))
         }

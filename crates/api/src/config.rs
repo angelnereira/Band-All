@@ -42,6 +42,15 @@ pub struct Config {
     /// Static service key for S2S calls (H3 stepping stone; H6 moves to
     /// per-client keys in the database).
     pub service_key: String,
+    /// Token issuer (`iss` claim).
+    #[serde(default = "default_issuer")]
+    pub token_issuer: String,
+    /// Token audience (`aud` claim).
+    #[serde(default = "default_audience")]
+    pub token_audience: String,
+    /// Directory holding `current.key` (+ `previous.key` in rotation).
+    #[serde(default = "default_keys_dir")]
+    pub keys_dir: String,
     /// Max JSON body size in bytes.
     #[serde(default = "default_body_limit")]
     pub body_limit_bytes: usize,
@@ -53,6 +62,18 @@ fn default_listen() -> String {
 
 fn default_body_limit() -> usize {
     DEFAULT_BODY_LIMIT
+}
+
+fn default_issuer() -> String {
+    "bandall".to_string()
+}
+
+fn default_audience() -> String {
+    "bandall".to_string()
+}
+
+fn default_keys_dir() -> String {
+    "keys".to_string()
 }
 
 impl Config {
@@ -81,6 +102,15 @@ impl Config {
         if let Ok(value) = std::env::var("BANDALL_SERVICE_KEY") {
             self.service_key = value;
         }
+        if let Ok(value) = std::env::var("BANDALL_TOKEN_ISSUER") {
+            self.token_issuer = value;
+        }
+        if let Ok(value) = std::env::var("BANDALL_TOKEN_AUDIENCE") {
+            self.token_audience = value;
+        }
+        if let Ok(value) = std::env::var("BANDALL_KEYS_DIR") {
+            self.keys_dir = value;
+        }
     }
 
     fn validate(&self) -> Result<(), Error> {
@@ -97,6 +127,15 @@ impl Config {
             return Err(Error::Config(
                 "service_key must be at least 32 characters".to_string(),
             ));
+        }
+        if self.token_issuer.is_empty() {
+            return Err(Error::Config("token_issuer is empty".to_string()));
+        }
+        if self.token_audience.is_empty() {
+            return Err(Error::Config("token_audience is empty".to_string()));
+        }
+        if self.keys_dir.is_empty() {
+            return Err(Error::Config("keys_dir is empty".to_string()));
         }
         if self.body_limit_bytes == 0 {
             return Err(Error::Config(
@@ -117,6 +156,9 @@ impl Config {
              kms_key_file = \"/run/secrets/bandall-kek\"\n\
              kek_id = \"kek-1\"\n\
              service_key = \"change-me-to-at-least-32-chars\"\n\
+             token_issuer = \"bandall\"\n\
+             token_audience = \"bandall\"\n\
+             keys_dir = \"keys\"\n\
              body_limit_bytes = {DEFAULT_BODY_LIMIT}\n"
         )
     }

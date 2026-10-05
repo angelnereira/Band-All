@@ -34,11 +34,18 @@ pub struct MfaVerifyRequest {
     pub code: String,
 }
 
-/// `POST /v1/mfa/verify` response.
+/// `POST /v1/mfa/verify` response. Tokens are issued inline so the login
+/// completes in one round trip.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MfaVerifyResponse {
     /// Always `true` on success (uniform denial otherwise).
     pub valid: bool,
+    /// JWT access token (10-minute life).
+    pub access_token: String,
+    /// Opaque refresh token (shown once).
+    pub refresh_token: String,
+    /// Access token lifetime in seconds.
+    pub expires_in: u64,
 }
 
 /// Verifies a login second factor with drift learning and atomic anti-replay.
@@ -47,7 +54,7 @@ pub struct MfaVerifyResponse {
     path = "/v1/mfa/verify",
     request_body = MfaVerifyRequest,
     responses(
-        (status = 200, description = "Code accepted", body = MfaVerifyResponse),
+        (status = 200, description = "Code accepted, session issued", body = MfaVerifyResponse),
         (status = 401, description = "Uniform denial")
     )
 )]
@@ -63,7 +70,17 @@ pub async fn mfa_verify(
         &body.code,
     )
     .await?;
-    Ok(Json(MfaVerifyResponse { valid: true }))
+    let now = now_unix().map_err(|_| Error::denied())?;
+    let keys = state.keys.clone();
+    let pair = crate::token::issue_session(&state, &keys, &body.tenant_id, &body.subject_id, now)
+        .await
+        .map_err(|_| Error::denied())?;
+    Ok(Json(MfaVerifyResponse {
+        valid: true,
+        access_token: pair.access_token,
+        refresh_token: pair.refresh_token,
+        expires_in: pair.expires_in,
+    }))
 }
 
 /// `POST /v1/verify` body (S2S-authenticated).
