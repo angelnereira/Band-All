@@ -49,6 +49,12 @@ enum Command {
         #[command(subcommand)]
         command: AuditCommand,
     },
+    /// HMAC API client operations.
+    Apikey {
+        /// API key subcommand.
+        #[command(subcommand)]
+        command: ApikeyCommand,
+    },
     /// Prints an example configuration file.
     InitConfig,
     /// Prints the version.
@@ -71,6 +77,35 @@ enum AuditCommand {
     },
 }
 
+/// API key subcommands.
+#[derive(Debug, Subcommand)]
+enum ApikeyCommand {
+    /// Creates an HMAC API client, printing the key once.
+    Create {
+        /// Configuration file path.
+        #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
+        config: PathBuf,
+        /// Owning tenant id.
+        #[arg(long)]
+        tenant: String,
+        /// Space-separated scopes (e.g. "verify").
+        #[arg(long, default_value = "verify")]
+        scopes: String,
+        /// Key id prefix.
+        #[arg(long, default_value = "key")]
+        prefix: String,
+    },
+    /// Revokes an API client.
+    Revoke {
+        /// Configuration file path.
+        #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
+        config: PathBuf,
+        /// Key id to revoke.
+        #[arg(long)]
+        key_id: String,
+    },
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Serve {
@@ -80,6 +115,15 @@ fn main() -> ExitCode {
         Command::Migrate { config } => migrate(&config),
         Command::Audit { command } => match command {
             AuditCommand::Verify { config, limit } => audit_verify(&config, limit),
+        },
+        Command::Apikey { command } => match command {
+            ApikeyCommand::Create {
+                config,
+                tenant,
+                scopes,
+                prefix,
+            } => apikey_create(&config, &tenant, &scopes, &prefix),
+            ApikeyCommand::Revoke { config, key_id } => apikey_revoke(&config, &key_id),
         },
         Command::InitConfig => {
             print!("{}", bandall_api::Config::example());
@@ -206,6 +250,131 @@ fn load_config(path: &std::path::Path) -> bandall_api::Config {
             std::process::exit(2);
         }
     }
+}
+
+/// Lowercase hex encoding for one-time key display.
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// Creates an HMAC API client, sealing its key and printing it once.
+fn apikey_create(
+    config_path: &std::path::Path,
+    tenant: &str,
+    scopes: &str,
+    prefix: &str,
+) -> ExitCode {
+    setup_logging();
+    let config = load_config(config_path);
+    let mut raw = vec![0u8; 32];
+    if getrandom::getrandom(&mut raw).is_err() {
+        eprintln!("cannot gather randomness");
+        return ExitCode::FAILURE;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let key_suffix: String = hex_encode(&raw).chars().take(12).collect();
+    let key_id = format!("{prefix}-{key_suffix}");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("cannot start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(async {
+        match bandall_api::server::build_state(&config).await {
+            Ok((state, _)) => {
+                let sealed = match state.vault.seal("api-clients", tenant, &key_id, &raw) {
+                    Ok(sealed) => sealed,
+                    Err(e) => {
+                        eprintln!("cannot seal key: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                let now_i64 = i64::try_from(now).unwrap_or(0);
+                let created = state
+                    .store
+                    .create_api_client(bandall_api::NewApiClient {
+                        key_id: key_id.clone(),
+                        tenant_id: tenant.to_string(),
+                        sealed_version: 1,
+                        kek_id: state.vault.kek_id().to_string(),
+                        wrapped_dek: sealed.wrapped_dek().ciphertext().to_vec(),
+                        wrapped_nonce: sealed.wrapped_dek().nonce().to_vec(),
+                        nonce: sealed.nonce().to_vec(),
+                        ciphertext: sealed.ciphertext().to_vec(),
+                        scopes: scopes.to_string(),
+                        created_at: now_i64,
+                    })
+                    .await;
+                match created {
+                    Ok(_) => {
+                        println!("key_id: {key_id}");
+                        println!("key: {}", hex_encode(&raw));
+                        println!("scopes: {scopes}");
+                        println!("store the key now; it is never shown again");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("cannot store client: {e}");
+                        ExitCode::FAILURE
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("startup error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
+}
+
+/// Revokes an HMAC API client.
+fn apikey_revoke(config_path: &std::path::Path, key_id: &str) -> ExitCode {
+    setup_logging();
+    let config = load_config(config_path);
+    let now_i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .unwrap_or(0);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("cannot start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(async {
+        match bandall_api::server::build_state(&config).await {
+            Ok((state, _)) => match state.store.revoke_api_client(key_id, now_i64).await {
+                Ok(()) => {
+                    println!("revoked {key_id}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("cannot revoke client: {e}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(e) => {
+                eprintln!("startup error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
 }
 
 #[cfg(test)]

@@ -18,6 +18,8 @@ bandall-api = { path = "../api" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # CLI parsing (including env var defaults).
 clap = { version = "4", features = ["derive", "env"] }
+# CSPRNG for API key generation.
+getrandom = "0.2"
 # Logging bootstrap.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

@@ -14,7 +14,9 @@ use std::sync::Arc;
 use axum::{Json, extract::State, http::HeaderMap};
 use bandall_api::{
     AppState,
+    authz::{AuthzParams, check as authz_check},
     enroll::{EnrollConfirmRequest, EnrollStartRequest, confirm, start},
+    sigs::{SigsVerifyRequest, verify_signature},
     token::{RefreshRequest, RevokeRequest, jwks, refresh, revoke},
     verify::{MfaVerifyRequest, RecoverRequest, S2sVerifyRequest, mfa_verify, recover, s2s_verify},
 };
@@ -463,4 +465,170 @@ async fn token_revoke() {
     .unwrap()
     .0;
     assert!(unknown.revoked);
+}
+
+#[tokio::test]
+async fn hmac_signature_round_trip() {
+    use bandall_sigs::{SignedRequest, sign};
+
+    let (state, tenant) = setup().await;
+    let key_id = "key-e2e-1".to_string();
+    let raw = vec![5u8; 32];
+    let sealed = state
+        .vault
+        .seal("api-clients", &tenant, &key_id, &raw)
+        .unwrap();
+    state
+        .store
+        .create_api_client(bandall_store::NewApiClient {
+            key_id: key_id.clone(),
+            tenant_id: tenant.clone(),
+            sealed_version: 1,
+            kek_id: "kek-e2e".to_string(),
+            wrapped_dek: sealed.wrapped_dek().ciphertext().to_vec(),
+            wrapped_nonce: sealed.wrapped_dek().nonce().to_vec(),
+            nonce: sealed.nonce().to_vec(),
+            ciphertext: sealed.ciphertext().to_vec(),
+            scopes: "verify".to_string(),
+            created_at: 1_700_000_000,
+        })
+        .await
+        .unwrap();
+
+    let body = SigsVerifyRequest {
+        key_id: key_id.clone(),
+        method: "POST".to_string(),
+        path: "/v1/verify".to_string(),
+        query: String::new(),
+        body: "{\"code\":\"123456\"}".to_string(),
+        timestamp: now_unix(),
+        nonce: "e2e-nonce-1".to_string(),
+        signature: String::new(),
+        scope: "verify".to_string(),
+    };
+    let signed = SignedRequest {
+        method: body.method.clone(),
+        path: body.path.clone(),
+        query: body.query.clone(),
+        body: body.body.clone().into_bytes(),
+        timestamp: body.timestamp,
+        nonce: body.nonce.clone(),
+    };
+    let signature = sign(&raw, &signed).unwrap();
+    let mut good = body;
+    good.signature = signature;
+    let answer = verify_signature(State(state.clone()), Json(good))
+        .await
+        .unwrap()
+        .0;
+    assert!(answer.valid);
+    assert_eq!(answer.key_id, key_id);
+
+    // Reused nonce is denied.
+    let replay = SigsVerifyRequest {
+        key_id: key_id.clone(),
+        method: "POST".to_string(),
+        path: "/v1/verify".to_string(),
+        query: String::new(),
+        body: "{\"code\":\"123456\"}".to_string(),
+        timestamp: now_unix(),
+        nonce: "e2e-nonce-1".to_string(),
+        signature: sign(
+            &raw,
+            &SignedRequest {
+                method: "POST".to_string(),
+                path: "/v1/verify".to_string(),
+                query: String::new(),
+                body: "{\"code\":\"123456\"}".to_string().into_bytes(),
+                timestamp: now_unix(),
+                nonce: "e2e-nonce-1".to_string(),
+            },
+        )
+        .unwrap(),
+        scope: String::new(),
+    };
+    // Fresh timestamp but seen nonce: the signature differs, computation
+    // still reaches the replay check first only when the signature matches;
+    // either way the verdict must be denial.
+    assert!(
+        verify_signature(State(state.clone()), Json(replay))
+            .await
+            .is_err()
+    );
+
+    // Unknown key is denied.
+    let unknown = SigsVerifyRequest {
+        key_id: "missing".to_string(),
+        method: "GET".to_string(),
+        path: "/x".to_string(),
+        query: String::new(),
+        body: String::new(),
+        timestamp: now_unix(),
+        nonce: "e2e-nonce-2".to_string(),
+        signature: "v1=00".to_string(),
+        scope: String::new(),
+    };
+    assert!(
+        verify_signature(State(state.clone()), Json(unknown))
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn forward_auth_allows_and_denies() {
+    use axum::extract::Query;
+
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    let pair = mfa_verify(
+        State(state.clone()),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant.clone(),
+            subject_id: subject_id.clone(),
+            factor_id: factor_id.clone(),
+            code,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", pair.access_token).parse().unwrap(),
+    );
+    let answer = authz_check(
+        State(state.clone()),
+        Query(AuthzParams { min_aal: 1 }),
+        headers,
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer.0, axum::http::StatusCode::OK);
+    assert!(answer.1.contains_key("x-bandall-subject"));
+
+    // Forged token and excessive AAL are denied.
+    let denied = authz_check(
+        State(state.clone()),
+        Query(AuthzParams { min_aal: 1 }),
+        HeaderMap::new(),
+    )
+    .await;
+    assert!(denied.is_err());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", pair.access_token).parse().unwrap(),
+    );
+    let aal_denied = authz_check(
+        State(state.clone()),
+        Query(AuthzParams { min_aal: 9 }),
+        headers,
+    )
+    .await;
+    assert!(aal_denied.is_err());
 }
