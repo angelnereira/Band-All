@@ -1,0 +1,33 @@
+# BandAll workspace. Layout follows the blueprint: crates/<x> => bandall-<x>.
+[workspace]
+resolver = "3"
+members = [
+    "crates/api",
+    "crates/authenticator-core",
+    "crates/cli",
+    "crates/policy",
+    "crates/sdk-axum",
+    "crates/sigs",
+    "crates/store",
+    "crates/tokens",
+    "crates/totp-core",
+    "crates/vault",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+# AGENTS.md "Seguridad": no unsafe code anywhere.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# AGENTS.md "Codigo": no unwrap/expect/panic/indexing outside tests.
+# Tests opt out via #![cfg_attr(test, allow(...))] in each crate root.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
