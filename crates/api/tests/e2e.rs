@@ -18,6 +18,7 @@ use bandall_api::{
     token::{RefreshRequest, RevokeRequest, jwks, refresh, revoke},
     verify::{MfaVerifyRequest, RecoverRequest, S2sVerifyRequest, mfa_verify, recover, s2s_verify},
 };
+use bandall_policy::Policy;
 use bandall_store::{SqliteStore, Store};
 use bandall_tokens::{KeyManager, verify as verify_token};
 use bandall_totp_core::{Secret, TotpParams, totp};
@@ -35,11 +36,13 @@ async fn setup() -> (AppState, String) {
     let kms = LocalKms::from_bytes("kek-e2e".to_string(), vec![3u8; 32]).unwrap();
     let vault = Arc::new(Vault::new(Arc::new(kms)));
     let keys = Arc::new(KeyManager::generate().unwrap());
+    let policy = Arc::new(Policy::default());
     let tenant = store.create_tenant("e2e", 1_700_000_000).await.unwrap();
     let state = AppState::new(
         store,
         vault,
         keys,
+        policy,
         ISSUER.to_string(),
         AUDIENCE.to_string(),
         SERVICE_KEY.to_string(),

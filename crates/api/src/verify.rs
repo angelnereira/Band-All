@@ -11,6 +11,7 @@ use utoipa::ToSchema;
 
 use crate::enroll::{now_unix, params_from_row, require_service_key, sealed_from_row, wrap_secret};
 use crate::error::Error;
+use crate::gates;
 use crate::state::AppState;
 
 /// Tolerance window: ±1 step.
@@ -62,15 +63,22 @@ pub async fn mfa_verify(
     State(state): State<AppState>,
     Json(body): Json<MfaVerifyRequest>,
 ) -> Result<Json<MfaVerifyResponse>, Error> {
-    verify_code(
+    let now = now_unix().map_err(|_| Error::denied())?;
+    let keys = [
+        gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
+        gates::tenant_key(&body.tenant_id),
+    ];
+    gates::check(&state, &keys, now)?;
+    let outcome = verify_code(
         &state,
         &body.tenant_id,
         &body.subject_id,
         &body.factor_id,
         &body.code,
     )
-    .await?;
-    let now = now_unix().map_err(|_| Error::denied())?;
+    .await;
+    gates::record(&state, &keys, now, outcome.is_ok());
+    outcome?;
     let keys = state.keys.clone();
     let pair = crate::token::issue_session(&state, &keys, &body.tenant_id, &body.subject_id, now)
         .await
@@ -122,14 +130,22 @@ pub async fn s2s_verify(
     Json(body): Json<S2sVerifyRequest>,
 ) -> Result<Json<S2sVerifyResponse>, Error> {
     require_service_key(&state, &headers)?;
-    let step = verify_code(
+    let now = now_unix().map_err(|_| Error::denied())?;
+    let keys = [
+        gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
+        gates::tenant_key(&body.tenant_id),
+    ];
+    gates::check(&state, &keys, now)?;
+    let outcome = verify_code(
         &state,
         &body.tenant_id,
         &body.subject_id,
         &body.factor_id,
         &body.code,
     )
-    .await?;
+    .await;
+    gates::record(&state, &keys, now, outcome.is_ok());
+    let step = outcome?;
     Ok(Json(S2sVerifyResponse {
         valid: true,
         step: step.get(),
@@ -172,6 +188,21 @@ pub struct RecoverResponse {
 pub async fn recover(
     State(state): State<AppState>,
     Json(body): Json<RecoverRequest>,
+) -> Result<Json<RecoverResponse>, Error> {
+    let now = now_unix().map_err(|_| Error::denied())?;
+    let keys = [
+        gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
+        gates::tenant_key(&body.tenant_id),
+    ];
+    gates::check(&state, &keys, now)?;
+    let outcome = recover_inner(&state, &body).await;
+    gates::record(&state, &keys, now, outcome.is_ok());
+    outcome
+}
+
+async fn recover_inner(
+    state: &AppState,
+    body: &RecoverRequest,
 ) -> Result<Json<RecoverResponse>, Error> {
     let factor = state
         .store
@@ -222,11 +253,17 @@ async fn verify_code(
     factor_id: &str,
     code: &str,
 ) -> Result<Step, Error> {
-    let factor = state
+    let factor = match state
         .store
         .get_factor(tenant_id, subject_id, factor_id)
         .await?
-        .ok_or_else(Error::denied)?;
+    {
+        Some(factor) => factor,
+        None => {
+            gates::dummy_verify();
+            return Err(Error::denied());
+        }
+    };
     if factor.status != "active" {
         return Err(Error::denied());
     }

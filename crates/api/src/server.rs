@@ -79,6 +79,7 @@ async fn shutdown_signal() {
 
 /// Builds shared state from configuration: store, vault and service key.
 pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error> {
+    use bandall_policy::{Limits, Policy};
     use bandall_store::{PgStore, SqliteStore};
     use bandall_tokens::KeyManager;
     use bandall_vault::{LocalKms, Vault};
@@ -95,6 +96,11 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
         KeyManager::load_or_generate(std::path::Path::new(&config.keys_dir))
             .map_err(|_| Error::Config("cannot load signing keys".to_string()))?,
     );
+    let policy = Arc::new(Policy::new(Limits {
+        max_attempts: config.policy_max_attempts,
+        lockout_after: config.policy_lockout_after,
+        ..Limits::default()
+    }));
     let service_key = config.service_key.clone();
     let issuer = config.token_issuer.clone();
     let audience = config.token_audience.clone();
@@ -103,7 +109,15 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
             let store = SqliteStore::connect(&config.database_url).await?;
             store.migrate().await?;
             Ok((
-                AppState::new(Arc::new(store), vault, keys, issuer, audience, service_key),
+                AppState::new(
+                    Arc::new(store),
+                    vault,
+                    keys,
+                    policy,
+                    issuer,
+                    audience,
+                    service_key,
+                ),
                 StoreKind::Sqlite,
             ))
         }
@@ -111,7 +125,15 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
             let store = PgStore::connect(&config.database_url).await?;
             store.migrate().await?;
             Ok((
-                AppState::new(Arc::new(store), vault, keys, issuer, audience, service_key),
+                AppState::new(
+                    Arc::new(store),
+                    vault,
+                    keys,
+                    policy,
+                    issuer,
+                    audience,
+                    service_key,
+                ),
                 StoreKind::Postgres,
             ))
         }

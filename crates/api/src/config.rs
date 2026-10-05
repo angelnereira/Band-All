@@ -51,6 +51,12 @@ pub struct Config {
     /// Directory holding `current.key` (+ `previous.key` in rotation).
     #[serde(default = "default_keys_dir")]
     pub keys_dir: String,
+    /// Verification attempts tolerated per window before backoff.
+    #[serde(default = "default_policy_max_attempts")]
+    pub policy_max_attempts: u32,
+    /// Consecutive failures triggering temporary lockout.
+    #[serde(default = "default_policy_lockout_after")]
+    pub policy_lockout_after: u32,
     /// Max JSON body size in bytes.
     #[serde(default = "default_body_limit")]
     pub body_limit_bytes: usize,
@@ -74,6 +80,14 @@ fn default_audience() -> String {
 
 fn default_keys_dir() -> String {
     "keys".to_string()
+}
+
+fn default_policy_max_attempts() -> u32 {
+    5
+}
+
+fn default_policy_lockout_after() -> u32 {
+    10
 }
 
 impl Config {
@@ -110,6 +124,16 @@ impl Config {
         }
         if let Ok(value) = std::env::var("BANDALL_KEYS_DIR") {
             self.keys_dir = value;
+        }
+        if let Ok(value) = std::env::var("BANDALL_POLICY_MAX_ATTEMPTS") {
+            if let Ok(parsed) = value.parse() {
+                self.policy_max_attempts = parsed;
+            }
+        }
+        if let Ok(value) = std::env::var("BANDALL_POLICY_LOCKOUT_AFTER") {
+            if let Ok(parsed) = value.parse() {
+                self.policy_lockout_after = parsed;
+            }
         }
     }
 
@@ -159,6 +183,8 @@ impl Config {
              token_issuer = \"bandall\"\n\
              token_audience = \"bandall\"\n\
              keys_dir = \"keys\"\n\
+             policy_max_attempts = 5\n\
+             policy_lockout_after = 10\n\
              body_limit_bytes = {DEFAULT_BODY_LIMIT}\n"
         )
     }

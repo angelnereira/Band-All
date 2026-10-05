@@ -97,6 +97,17 @@ pub async fn refresh(
     Json(body): Json<RefreshRequest>,
 ) -> Result<Json<TokenPair>, Error> {
     let now = crate::enroll::now_unix().map_err(|_| Error::denied())?;
+    // Refresh tokens carry 256 bits of entropy: abuse accounting stays light
+    // (tenant key only) since guessing is infeasible.
+    let keys = [crate::gates::tenant_key("refresh")];
+    crate::gates::check(&state, &keys, now)?;
+    let outcome = refresh_inner(&state, &body).await;
+    crate::gates::record(&state, &keys, now, outcome.is_ok());
+    outcome
+}
+
+async fn refresh_inner(state: &AppState, body: &RefreshRequest) -> Result<Json<TokenPair>, Error> {
+    let now = crate::enroll::now_unix().map_err(|_| Error::denied())?;
     let now_i64 = i64::try_from(now).map_err(|_| Error::denied())?;
     let hash = hash_plaintext(&body.refresh_token);
     let entry = state

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use subtle::ConstantTimeEq;
 
+use bandall_policy::Policy;
 use bandall_store::Store;
 use bandall_tokens::KeyManager;
 use bandall_vault::Vault;
@@ -17,6 +18,8 @@ pub struct AppState {
     pub vault: Arc<Vault>,
     /// Signing keys (current plus rotation overlap).
     pub keys: Arc<KeyManager>,
+    /// Failure tracker (rate limit, backoff, lockout).
+    pub policy: Arc<Policy>,
     /// Token issuer (`iss`).
     pub issuer: String,
     /// Token audience (`aud`).
@@ -28,10 +31,12 @@ pub struct AppState {
 impl AppState {
     /// Builds state. The service key lives in an `Arc<str>` (no `String`
     /// clones on the hot path, never logged).
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<dyn Store>,
         vault: Arc<Vault>,
         keys: Arc<KeyManager>,
+        policy: Arc<Policy>,
         issuer: String,
         audience: String,
         service_key: String,
@@ -40,6 +45,7 @@ impl AppState {
             store,
             vault,
             keys,
+            policy,
             issuer,
             audience,
             service_key: Arc::from(service_key),

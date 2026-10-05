@@ -15,6 +15,7 @@
 pub mod config;
 pub mod enroll;
 pub mod error;
+pub mod gates;
 pub mod health;
 pub mod openapi;
 pub mod server;

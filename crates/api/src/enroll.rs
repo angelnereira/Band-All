@@ -209,6 +209,21 @@ pub async fn confirm(
     State(state): State<AppState>,
     Json(body): Json<EnrollConfirmRequest>,
 ) -> Result<Json<EnrollConfirmResponse>, Error> {
+    let now = now_unix().map_err(|_| Error::denied())?;
+    let keys = [
+        crate::gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
+        crate::gates::tenant_key(&body.tenant_id),
+    ];
+    crate::gates::check(&state, &keys, now)?;
+    let outcome = confirm_inner(&state, &body).await;
+    crate::gates::record(&state, &keys, now, outcome.is_ok());
+    outcome
+}
+
+async fn confirm_inner(
+    state: &AppState,
+    body: &EnrollConfirmRequest,
+) -> Result<Json<EnrollConfirmResponse>, Error> {
     let factor = state
         .store
         .get_factor(&body.tenant_id, &body.subject_id, &body.factor_id)

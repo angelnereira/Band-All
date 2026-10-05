@@ -52,6 +52,10 @@ pub enum Error {
     #[error("not found")]
     NotFound,
 
+    /// Rate limited: back off and retry later.
+    #[error("rate limited")]
+    RateLimited,
+
     /// A dependency is unreachable. Detail is intentionally generic.
     #[error("service unavailable")]
     Unavailable,
@@ -119,6 +123,12 @@ impl IntoResponse for Error {
                 PROBLEM_NOT_FOUND,
                 "Not found",
                 "Unknown resource.".to_string(),
+            ),
+            Self::RateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                PROBLEM_RATE_LIMITED,
+                "Rate limited",
+                "Too many attempts, retry later.".to_string(),
             ),
             Self::Unavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
