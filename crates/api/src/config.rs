@@ -359,7 +359,15 @@ mod tests {
     use super::{Config, PolicyBackendKind, TrustedProxies};
 
     fn write_config(body: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("bandall-test-{}.toml", std::process::id()));
+        use std::sync::atomic::{AtomicU32, Ordering};
+        // Unique per test: tests run in parallel and would otherwise share
+        // (and delete) each other's file.
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "bandall-config-test-{}-{id}.toml",
+            std::process::id()
+        ));
         std::fs::write(&path, body).unwrap();
         path
     }
