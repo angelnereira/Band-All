@@ -24,6 +24,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H6: `sdk-axum` (Layer `RequireToken` con verificación offline y claims en extensiones).
 - H6: vectores de conformidad compartidos + SDKs TypeScript y Python (JWT offline y firmas HMAC, job `sdks` en CI).
 - H6: demo legacy sin modificar (compose + nginx `auth_request`), guía de forward-auth y ejemplo embebido offline.
+- H7 (núcleo): `authenticator-core` (cuentas, códigos con cuenta atrás, aviso de deriva, backup cifrado opcional, ADR-0006 nativo+UniFFI).
 
 ### Fixed
 
