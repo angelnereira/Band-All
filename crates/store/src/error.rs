@@ -14,6 +14,10 @@ pub enum Error {
     #[error("migration error: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
 
+    /// Clear-text connection to a remote Postgres (fail closed).
+    #[error("remote postgres requires TLS (add sslmode=require/verify-full)")]
+    InsecureConnection,
+
     /// Stored value violates an invariant (e.g. negative step).
     #[error("corrupt row")]
     CorruptRow,

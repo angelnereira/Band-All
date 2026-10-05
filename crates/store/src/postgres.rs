@@ -20,13 +20,41 @@ pub struct PgStore {
 
 impl PgStore {
     /// Connects without running migrations.
+    ///
+    /// Fail closed on transport security: a remote Postgres must use TLS.
+    /// Only loopback hosts may connect in clear (local dev / sidecar).
     pub async fn connect(url: &str) -> Result<Self, Error> {
+        Self::require_tls_for_remote(url)?;
         if !sqlx::Postgres::database_exists(url).await.unwrap_or(false) {
             sqlx::Postgres::create_database(url).await?;
         }
         Ok(Self {
             pool: PgPool::connect(url).await?,
         })
+    }
+
+    /// Rejects clear-text connections to non-loopback hosts. Parsing a URL is
+    /// best-effort: anything unparseable is refused too (fail closed), because
+    /// we cannot tell whether it would have been encrypted.
+    fn require_tls_for_remote(url: &str) -> Result<(), Error> {
+        let parsed = url::Url::parse(url).map_err(|_| Error::InsecureConnection)?;
+        if parsed.scheme() != "postgres" && parsed.scheme() != "postgresql" {
+            return Err(Error::InsecureConnection);
+        }
+        let host = parsed.host_str().unwrap_or_default();
+        let loopback = matches!(host, "localhost" | "::1")
+            || host
+                .parse::<std::net::IpAddr>()
+                .map(|ip| ip.is_loopback())
+                .unwrap_or(false);
+        let wants_tls = parsed.query_pairs().any(|(k, v)| {
+            k == "sslmode" && (v == "require" || v == "verify-ca" || v == "verify-full")
+        });
+        if loopback || wants_tls {
+            Ok(())
+        } else {
+            Err(Error::InsecureConnection)
+        }
     }
 
     /// Runs pending migrations.
@@ -532,6 +560,32 @@ impl Store for PgStore {
 mod tests {
     use super::PgStore;
     use crate::tests_battery;
+
+    #[test]
+    fn rejects_clear_text_remote() {
+        // Remote host without TLS: must be refused before any I/O.
+        let result = PgStore::connect("postgres://bandall:pw@db.internal:5432/bandall");
+        assert!(matches!(result, Err(Error::InsecureConnection)));
+        // Unparseable URL: also refused (fail closed).
+        assert!(matches!(
+            PgStore::connect("not-a-url"),
+            Err(Error::InsecureConnection)
+        ));
+    }
+
+    #[tokio::test]
+    async fn accepts_tls_or_loopback_urls_without_touching_network() {
+        // These return before any connection attempt: the TLS/loopback gate
+        // passes and the failure (if any) comes from name resolution, not the
+        // security check.
+        let with_tls = PgStore::connect(
+            "postgres://bandall:pw@db.internal:5432/bandall?sslmode=require",
+        )
+        .await;
+        assert!(!matches!(with_tls, Err(Error::InsecureConnection)));
+        let loopback = PgStore::connect("postgres://bandall:pw@127.0.0.1:1/bandall").await;
+        assert!(!matches!(loopback, Err(Error::InsecureConnection)));
+    }
 
     /// Runs against Postgres when `BANDALL_TEST_PG` is set (CI service).
     /// Skips silently otherwise so local runs stay SQLite-only.
