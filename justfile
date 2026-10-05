@@ -1,39 +1,54 @@
-# BandAll task runner. `just check` must match the CI pipeline exactly.
+# BandAll task runner. `just check` mirrors the CI pipeline exactly: same
+# commands, same flags, same order.
 set shell := ["bash", "-uc"]
 
 # List available recipes.
 default:
     @just --list
 
-# Run the full local gate: fmt + clippy + tests + deny + audit.
-check: fmt clippy test deny audit
+# Full local gate: everything CI runs, in the same order.
+check: fmt clippy test msrv coverage deny audit
+    @echo "gate: local checks passed (sdks/docker jobs run in CI only)"
 
 fmt:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 test:
-    cargo test --workspace
+    cargo test --workspace --locked
+
+# Minimum supported Rust version must keep compiling.
+msrv:
+    cargo +1.85.0 check --workspace --all-targets --locked
+
+# Core coverage (H1 gate: > 90%). See docs/VERIFICATION.md if llvm-cov is
+# missing locally.
+coverage:
+    cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
 
 deny:
     cargo deny check
 
 audit:
-    cargo audit
+    cargo audit --deny warnings
 
-# Install the local tooling this justfile needs.
-install-tools:
-    cargo install just cargo-deny cargo-audit --locked
+# CI-only jobs, exposed locally for convenience.
+sdks:
+    cd sdks/ts && node --test test/vectors.test.ts
+    cd sdks/python && python -m unittest discover -s tests
 
-# Build the production container image.
 docker-build:
     docker build -f deploy/Dockerfile -t bandall:dev .
 
-# Start the local dev stack (api + Postgres).
-up:
-    docker compose -f deploy/compose/compose.yaml up --build
+docker-up:
+    docker compose -f deploy/compose/compose.yaml up --build -d
 
-down:
-    docker compose -f deploy/compose/compose.yaml down
+docker-down:
+    docker compose -f deploy/compose/compose.yaml down -v
+
+# Install the local tooling these recipes need.
+install-tools:
+    cargo install just cargo-deny cargo-audit --locked
+    cargo install cargo-llvm-cov --locked
