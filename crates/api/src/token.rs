@@ -175,6 +175,7 @@ async fn refresh_inner(state: &AppState, body: &RefreshRequest) -> Result<Json<T
     )
     .map_err(|_| Error::denied())?;
     let access_token = bandall_tokens::issue(&state.keys, &claims).map_err(|_| Error::denied())?;
+    state.metrics.refreshed();
     crate::audit::record(
         state,
         &session.tenant_id,

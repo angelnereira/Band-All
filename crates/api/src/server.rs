@@ -18,6 +18,7 @@ use crate::config::Config;
 use crate::enroll;
 use crate::error::Error;
 use crate::health;
+use crate::metrics;
 use crate::openapi;
 use crate::sigs;
 use crate::state::AppState;
@@ -39,6 +40,7 @@ pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
         .route("/v1/token/revoke", post(token::revoke))
         .route("/v1/sigs/verify", post(sigs::verify_signature))
         .route("/v1/authz/check", get(authz::check))
+        .route("/metrics", get(metrics::metrics))
         .route("/.well-known/jwks.json", get(token::jwks))
         .fallback(health::not_found)
         .layer(TraceLayer::new_for_http())

@@ -79,6 +79,8 @@ pub struct EnrollStartRequest {
 pub struct EnrollStartResponse {
     /// New factor id.
     pub factor_id: String,
+    /// Subject id (needed for `confirm`).
+    pub subject_id: String,
     /// `otpauth://` URI for the QR code.
     pub otpauth_uri: String,
     /// Unix time when the pending factor expires.
@@ -166,6 +168,7 @@ pub async fn start(
         .await?;
 
     let uri = Otpauth::new(params, secret, body.issuer, body.account)?.to_uri();
+    state.metrics.enrolled();
     crate::audit::record(
         &state,
         &body.tenant_id,
@@ -175,6 +178,7 @@ pub async fn start(
     .await?;
     Ok(Json(EnrollStartResponse {
         factor_id,
+        subject_id: subject.id,
         otpauth_uri: uri,
         expires_at: now.saturating_add(PENDING_EXPIRY_SECS),
     }))

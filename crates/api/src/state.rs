@@ -10,6 +10,8 @@ use bandall_store::Store;
 use bandall_tokens::KeyManager;
 use bandall_vault::Vault;
 
+use crate::metrics::Metrics;
+
 /// Application state shared by all handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -21,6 +23,8 @@ pub struct AppState {
     pub keys: Arc<KeyManager>,
     /// Failure tracker (rate limit, backoff, lockout).
     pub policy: Arc<Policy>,
+    /// Process metrics (Prometheus exposition).
+    pub metrics: Arc<Metrics>,
     /// Single-use HMAC nonces (process-local; Redis in H8 for multi-replica).
     pub nonces: Arc<Mutex<NonceCache>>,
     /// Token issuer (`iss`).
@@ -49,6 +53,7 @@ impl AppState {
             vault,
             keys,
             policy,
+            metrics: Arc::new(Metrics::new()),
             nonces: Arc::new(Mutex::new(NonceCache::new())),
             issuer,
             audience,

@@ -19,6 +19,7 @@ pub mod enroll;
 pub mod error;
 pub mod gates;
 pub mod health;
+pub mod metrics;
 pub mod openapi;
 pub mod server;
 pub mod sigs;

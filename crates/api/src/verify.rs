@@ -78,6 +78,7 @@ pub async fn mfa_verify(
     )
     .await;
     gates::record(&state, &keys, now, outcome.is_ok());
+    state.metrics.mfa(outcome.is_ok());
     let event = if outcome.is_ok() {
         crate::audit::event::MFA_VERIFIED
     } else {
