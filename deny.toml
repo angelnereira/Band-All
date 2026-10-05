@@ -4,11 +4,17 @@
 
 [advisories]
 version = 2
+# Never resolve to a yanked release.
+yanked = "deny"
 
 [licenses]
 version = 2
 # Only well-known permissive licenses. Expanding this list requires justification
 # in the PR that needs it.
+#
+# NOTE (ADR-0007): `aws-lc-rs` and `ring` bundle OpenSSL-derived code under
+# ISC/OpenSSL terms. If the H9 FIPS build lands, expect to add
+# "OpenSSL" and "ISC" explicitly, with the justification in that PR.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -23,6 +29,8 @@ allow = [
 private = { ignore = true }
 
 [bans]
+# No wildcard requirements: a typo must not silently become a different crate.
+wildcards = "deny"
 multiple-versions = "warn"
 # TLS and crypto must come from rustls/RustCrypto/aws-lc-rs, never OpenSSL.
 deny = [
