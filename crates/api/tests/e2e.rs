@@ -15,8 +15,11 @@ use axum::{Json, extract::State, http::HeaderMap};
 use bandall_api::{
     AppState,
     authz::{AuthzParams, check as authz_check},
+    config::TrustedProxies,
     enroll::{EnrollConfirmRequest, EnrollStartRequest, confirm, start},
+    gates::PeerAddr,
     sigs::{SigsVerifyRequest, verify_signature},
+    state::PolicyHandle,
     token::{RefreshRequest, RevokeRequest, jwks, refresh, revoke},
     verify::{MfaVerifyRequest, RecoverRequest, S2sVerifyRequest, mfa_verify, recover, s2s_verify},
 };
@@ -38,13 +41,15 @@ async fn setup() -> (AppState, String) {
     let kms = LocalKms::from_bytes("kek-e2e".to_string(), vec![3u8; 32]).unwrap();
     let vault = Arc::new(Vault::new(Arc::new(kms)));
     let keys = Arc::new(KeyManager::generate().unwrap());
-    let policy = Arc::new(Policy::default());
+    let policy = PolicyHandle::Memory(Arc::new(Policy::default()));
+    let trusted_proxies = Arc::new(TrustedProxies::default());
     let tenant = store.create_tenant("e2e", 1_700_000_000).await.unwrap();
     let state = AppState::new(
         store,
         vault,
         keys,
         policy,
+        trusted_proxies,
         ISSUER.to_string(),
         AUDIENCE.to_string(),
         SERVICE_KEY.to_string(),
@@ -104,6 +109,8 @@ async fn enroll_active(state: &AppState, tenant_id: &str) -> (String, String, Se
     let code = totp::generate(&secret, params, now_unix()).unwrap();
     let confirmed = confirm(
         State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
         Json(EnrollConfirmRequest {
             tenant_id: tenant_id.to_string(),
             subject_id: subject.id.clone(),
@@ -133,7 +140,16 @@ async fn full_mfa_cycle() {
         factor_id: factor_id.clone(),
         code: code.clone(),
     };
-    assert!(mfa_verify(State(state.clone()), Json(body)).await.is_ok());
+    assert!(
+        mfa_verify(
+            State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
+            Json(body),
+        )
+        .await
+        .is_ok()
+    );
     let replay = MfaVerifyRequest {
         tenant_id: tenant.clone(),
         subject_id: subject_id.clone(),
@@ -141,9 +157,14 @@ async fn full_mfa_cycle() {
         code,
     };
     assert!(
-        mfa_verify(State(state.clone()), Json(replay))
-            .await
-            .is_err()
+        mfa_verify(
+            State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
+            Json(replay)
+        )
+        .await
+        .is_err()
     );
 
     // Unknown factor and wrong code are denied uniformly.
@@ -154,9 +175,14 @@ async fn full_mfa_cycle() {
         code: "123456".to_string(),
     };
     assert!(
-        mfa_verify(State(state.clone()), Json(unknown))
-            .await
-            .is_err()
+        mfa_verify(
+            State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
+            Json(unknown)
+        )
+        .await
+        .is_err()
     );
 
     // Codes outside the tolerance window are rejected.
@@ -168,9 +194,14 @@ async fn full_mfa_cycle() {
         code: far,
     };
     assert!(
-        mfa_verify(State(state.clone()), Json(outside))
-            .await
-            .is_err()
+        mfa_verify(
+            State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
+            Json(outside)
+        )
+        .await
+        .is_err()
     );
 }
 
@@ -225,6 +256,8 @@ async fn concurrent_replay_single_winner() {
         handles.push(tokio::spawn(async move {
             mfa_verify(
                 State(task_state),
+                HeaderMap::new(),
+                PeerAddr(None),
                 Json(MfaVerifyRequest {
                     tenant_id: task_tenant,
                     subject_id: task_subject,
@@ -256,6 +289,7 @@ async fn s2s_and_recovery() {
     let answer = s2s_verify(
         State(state.clone()),
         service_headers(),
+        PeerAddr(None),
         Json(S2sVerifyRequest {
             tenant_id: tenant.clone(),
             subject_id: subject_id.clone(),
@@ -270,6 +304,7 @@ async fn s2s_and_recovery() {
     let denied = s2s_verify(
         State(state.clone()),
         HeaderMap::new(),
+        PeerAddr(None),
         Json(S2sVerifyRequest {
             tenant_id: tenant.clone(),
             subject_id: subject_id.clone(),
@@ -309,6 +344,8 @@ async fn s2s_and_recovery() {
         let first = totp::generate(&bob_secret, params, now_unix()).unwrap();
         let confirmed = confirm(
             State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
             Json(EnrollConfirmRequest {
                 tenant_id: tenant.clone(),
                 subject_id: subject.id.clone(),
@@ -323,6 +360,8 @@ async fn s2s_and_recovery() {
     };
     let answer = recover(
         State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
         Json(RecoverRequest {
             tenant_id: tenant.clone(),
             subject_id: codes.1.clone(),
@@ -338,6 +377,8 @@ async fn s2s_and_recovery() {
     // Factor is gone: further verification is denied.
     let gone = mfa_verify(
         State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
         Json(MfaVerifyRequest {
             tenant_id: tenant.clone(),
             subject_id: codes.1,
@@ -359,6 +400,8 @@ async fn token_rotation_and_reuse_detection() {
     let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
     let pair = mfa_verify(
         State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
         Json(MfaVerifyRequest {
             tenant_id: tenant.clone(),
             subject_id: subject_id.clone(),
@@ -425,6 +468,8 @@ async fn token_revoke() {
     let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
     let pair = mfa_verify(
         State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
         Json(MfaVerifyRequest {
             tenant_id: tenant.clone(),
             subject_id: subject_id.clone(),
@@ -585,6 +630,8 @@ async fn forward_auth_allows_and_denies() {
     let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
     let pair = mfa_verify(
         State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
         Json(MfaVerifyRequest {
             tenant_id: tenant.clone(),
             subject_id: subject_id.clone(),
@@ -631,4 +678,90 @@ async fn forward_auth_allows_and_denies() {
     )
     .await;
     assert!(aal_denied.is_err());
+}
+
+#[tokio::test]
+async fn concurrent_wrong_codes_stop_at_limit() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, _secret) = enroll_active(&state, &tenant).await;
+
+    let mut handles = Vec::new();
+    for _ in 0..20 {
+        let (task_state, task_tenant, task_subject, task_factor) = (
+            state.clone(),
+            tenant.clone(),
+            subject_id.clone(),
+            factor_id.clone(),
+        );
+        handles.push(tokio::spawn(async move {
+            mfa_verify(
+                State(task_state),
+                HeaderMap::new(),
+                PeerAddr(None),
+                Json(MfaVerifyRequest {
+                    tenant_id: task_tenant,
+                    subject_id: task_subject,
+                    factor_id: task_factor,
+                    code: "000000".to_string(),
+                }),
+            )
+            .await
+        }));
+    }
+
+    let mut verified = 0;
+    let mut throttled = 0;
+    for handle in handles {
+        match handle.await.unwrap() {
+            Err(bandall_api::Error::Unauthorized) => verified += 1,
+            Err(bandall_api::Error::RateLimited) => throttled += 1,
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+    }
+    // Factor limit is 5: only those reach verification, exactly once each.
+    assert_eq!(verified, 5);
+    assert_eq!(throttled, 15);
+}
+
+#[tokio::test]
+async fn neighbor_flood_does_not_block_valid_factor() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+
+    // A flood of failures against unknown factors sharing the tenant key.
+    for index in 0..50 {
+        let denied = mfa_verify(
+            State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
+            Json(MfaVerifyRequest {
+                tenant_id: tenant.clone(),
+                subject_id: subject_id.clone(),
+                factor_id: format!("missing-{index}"),
+                code: "123456".to_string(),
+            }),
+        )
+        .await;
+        assert!(denied.is_err());
+    }
+
+    // The valid factor of the same tenant still verifies.
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    let accepted = mfa_verify(
+        State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant.clone(),
+            subject_id: subject_id.clone(),
+            factor_id: factor_id.clone(),
+            code,
+        }),
+    )
+    .await;
+    assert!(
+        accepted.is_ok(),
+        "valid factor blocked by neighbor flood: {accepted:?}"
+    );
 }

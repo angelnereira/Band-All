@@ -218,16 +218,21 @@ pub struct EnrollConfirmResponse {
 )]
 pub async fn confirm(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: crate::gates::PeerAddr,
     Json(body): Json<EnrollConfirmRequest>,
 ) -> Result<Json<EnrollConfirmResponse>, Error> {
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         crate::gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         crate::gates::tenant_key(&body.tenant_id),
     ];
-    crate::gates::check(&state, &keys, now)?;
+    if let Some(ip) = crate::gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(crate::gates::ip_key(ip));
+    }
+    crate::gates::acquire(&state, &keys, now).await?;
     let outcome = confirm_inner(&state, &body).await;
-    crate::gates::record(&state, &keys, now, outcome.is_ok());
+    crate::gates::record(&state, &keys, outcome.is_ok()).await?;
     let event = if outcome.is_ok() {
         crate::audit::event::ENROLL_CONFIRMED
     } else {

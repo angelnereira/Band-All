@@ -61,14 +61,19 @@ pub struct MfaVerifyResponse {
 )]
 pub async fn mfa_verify(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: gates::PeerAddr,
     Json(body): Json<MfaVerifyRequest>,
 ) -> Result<Json<MfaVerifyResponse>, Error> {
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         gates::tenant_key(&body.tenant_id),
     ];
-    gates::check(&state, &keys, now)?;
+    if let Some(ip) = gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(gates::ip_key(ip));
+    }
+    gates::acquire(&state, &keys, now).await?;
     let outcome = verify_code(
         &state,
         &body.tenant_id,
@@ -77,7 +82,7 @@ pub async fn mfa_verify(
         &body.code,
     )
     .await;
-    gates::record(&state, &keys, now, outcome.is_ok());
+    gates::record(&state, &keys, outcome.is_ok()).await?;
     state.metrics.mfa(outcome.is_ok());
     let event = if outcome.is_ok() {
         crate::audit::event::MFA_VERIFIED
@@ -134,15 +139,19 @@ pub struct S2sVerifyResponse {
 pub async fn s2s_verify(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: gates::PeerAddr,
     Json(body): Json<S2sVerifyRequest>,
 ) -> Result<Json<S2sVerifyResponse>, Error> {
     require_service_key(&state, &headers)?;
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         gates::tenant_key(&body.tenant_id),
     ];
-    gates::check(&state, &keys, now)?;
+    if let Some(ip) = gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(gates::ip_key(ip));
+    }
+    gates::acquire(&state, &keys, now).await?;
     let outcome = verify_code(
         &state,
         &body.tenant_id,
@@ -151,7 +160,7 @@ pub async fn s2s_verify(
         &body.code,
     )
     .await;
-    gates::record(&state, &keys, now, outcome.is_ok());
+    gates::record(&state, &keys, outcome.is_ok()).await?;
     let event = if outcome.is_ok() {
         crate::audit::event::S2S_VERIFIED
     } else {
@@ -200,16 +209,21 @@ pub struct RecoverResponse {
 )]
 pub async fn recover(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: gates::PeerAddr,
     Json(body): Json<RecoverRequest>,
 ) -> Result<Json<RecoverResponse>, Error> {
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         gates::tenant_key(&body.tenant_id),
     ];
-    gates::check(&state, &keys, now)?;
+    if let Some(ip) = gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(gates::ip_key(ip));
+    }
+    gates::acquire(&state, &keys, now).await?;
     let outcome = recover_inner(&state, &body).await;
-    gates::record(&state, &keys, now, outcome.is_ok());
+    gates::record(&state, &keys, outcome.is_ok()).await?;
     let event = if outcome.is_ok() {
         crate::audit::event::RECOVERY_USED
     } else {

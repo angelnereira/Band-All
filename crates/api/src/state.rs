@@ -4,13 +4,23 @@ use std::sync::{Arc, Mutex};
 
 use subtle::ConstantTimeEq;
 
-use bandall_policy::Policy;
+use bandall_policy::{Policy, PolicyConfig};
 use bandall_sigs::NonceCache;
 use bandall_store::Store;
 use bandall_tokens::KeyManager;
 use bandall_vault::Vault;
 
+use crate::config::TrustedProxies;
 use crate::metrics::Metrics;
+
+/// Selected failure-tracker backend (ADR-0008).
+#[derive(Clone)]
+pub enum PolicyHandle {
+    /// Process-local tracker: single replica, embedded mode, tests.
+    Memory(Arc<Policy>),
+    /// Shared `auth_failures` table: multi-replica service deployments.
+    Database(PolicyConfig),
+}
 
 /// Application state shared by all handlers.
 #[derive(Clone)]
@@ -22,7 +32,9 @@ pub struct AppState {
     /// Signing keys (current plus rotation overlap).
     pub keys: Arc<KeyManager>,
     /// Failure tracker (rate limit, backoff, lockout).
-    pub policy: Arc<Policy>,
+    pub policy: PolicyHandle,
+    /// Reverse proxies trusted to set `X-Forwarded-For`.
+    pub trusted_proxies: Arc<TrustedProxies>,
     /// Process metrics (Prometheus exposition).
     pub metrics: Arc<Metrics>,
     /// Single-use HMAC nonces (process-local; Redis in H8 for multi-replica).
@@ -43,7 +55,8 @@ impl AppState {
         store: Arc<dyn Store>,
         vault: Arc<Vault>,
         keys: Arc<KeyManager>,
-        policy: Arc<Policy>,
+        policy: PolicyHandle,
+        trusted_proxies: Arc<TrustedProxies>,
         issuer: String,
         audience: String,
         service_key: String,
@@ -53,6 +66,7 @@ impl AppState {
             vault,
             keys,
             policy,
+            trusted_proxies,
             metrics: Arc::new(Metrics::new()),
             nonces: Arc::new(Mutex::new(NonceCache::new())),
             issuer,
