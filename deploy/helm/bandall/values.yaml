@@ -1,0 +1,49 @@
+# Default values for the BandAll chart. Secrets come from an externally
+# managed Secret (never from values files committed to git).
+replicaCount: 2
+
+image:
+  repository: ghcr.io/angelnereira/bandall
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+config:
+  listen: "0.0.0.0:8080"
+  database: postgres
+  databaseUrl: postgres://bandall@postgres:5432/bandall
+  kekId: kek-1
+  tokenIssuer: bandall
+  tokenAudience: bandall
+
+existingSecret: bandall-secrets
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+security:
+  runAsNonRoot: true
+  runAsUser: 65532
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+probes:
+  liveness: /healthz
+  readiness: /readyz
+
+service:
+  type: ClusterIP
+  port: 8080
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70

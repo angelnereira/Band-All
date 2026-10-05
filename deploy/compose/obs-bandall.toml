@@ -1,0 +1,10 @@
+# Minimal BandAll config for the observability stack (SQLite keeps it local).
+listen = "0.0.0.0:8080"
+database = "sqlite"
+database_url = "sqlite:/data/bandall.db"
+kms_key_file = "/run/secrets/bandall-kek"
+kek_id = "kek-obs"
+service_key = "change-me-to-at-least-32-chars"
+token_issuer = "bandall-obs"
+token_audience = "obs-app"
+keys_dir = "/data/keys"

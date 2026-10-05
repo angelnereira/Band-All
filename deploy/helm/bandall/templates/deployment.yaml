@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-bandall
+  labels:
+    app: bandall
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: bandall
+  template:
+    metadata:
+      labels:
+        app: bandall
+    spec:
+      containers:
+        - name: bandall
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: BANDALL_CONFIG
+              value: /config/bandall.toml
+            - name: BANDALL_DATABASE_URL
+              value: {{ .Values.config.databaseUrl | quote }}
+            - name: BANDALL_KMS_KEY_FILE
+              value: /run/secrets/bandall-kek
+            - name: BANDALL_KEK_ID
+              value: {{ .Values.config.kekId | quote }}
+            - name: BANDALL_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: service-key
+            - name: BANDALL_TOKEN_ISSUER
+              value: {{ .Values.config.tokenIssuer | quote }}
+            - name: BANDALL_TOKEN_AUDIENCE
+              value: {{ .Values.config.tokenAudience | quote }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: kek
+              mountPath: /run/secrets
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness }}
+              port: 8080
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness }}
+              port: 8080
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: {{ .Values.security.runAsNonRoot }}
+            runAsUser: {{ .Values.security.runAsUser }}
+            readOnlyRootFilesystem: {{ .Values.security.readOnlyRootFilesystem }}
+            allowPrivilegeEscalation: {{ .Values.security.allowPrivilegeEscalation }}
+            capabilities:
+              drop: {{ toYaml .Values.security.capabilities.drop | nindent 14 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-bandall-config
+        - name: kek
+          secret:
+            secretName: {{ .Values.existingSecret }}

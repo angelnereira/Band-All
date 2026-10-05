@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-bandall
+  labels:
+    app: bandall
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: bandall
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-bandall-config
+  labels:
+    app: bandall
+data:
+  bandall.toml: |
+    listen = "{{ .Values.config.listen }}"
+    database = "{{ .Values.config.database }}"
+    database_url = "{{ .Values.config.databaseUrl }}"
+    kms_key_file = "/run/secrets/bandall-kek"
+    kek_id = "{{ .Values.config.kekId }}"
+    service_key = "from-secret"
+    token_issuer = "{{ .Values.config.tokenIssuer }}"
+    token_audience = "{{ .Values.config.tokenAudience }}"
+    keys_dir = "/data/keys"
