@@ -1,70 +1,77 @@
-# AGENTS.md — Reglas para BandAll
+# AGENTS.md — BandAll
 
-Este archivo manda sobre cualquier suposición. Si algo entra en conflicto con estas reglas, **detente y pregunta**.
+Guía para agentes que trabajan en este repo. Manda sobre cualquier suposición: si algo choca con estas reglas, **detente y pregunta** (§ Cuándo detenerse).
 
-## 1. Proyecto
-**BandAll** es un servicio de seguridad escrito en Rust: autenticación TOTP (RFC 6238/4226) con autenticador **offline**, emisión de tokens, verificación S2S y firmas HMAC para APIs/webhooks. Se usa de tres formas: servicio independiente, sidecar/forward-auth y librería embebida.
-Documentos de referencia: `BANDALL_BLUEPRINT.md` (diseño) y `BANDALL_ROADMAP.md` (hitos H0–H9). Trabaja **solo en el hito activo**.
+## Estado del repo
+- **Solo hay documentación.** No existe código, `Cargo.toml`, CI, Docker ni `justfile`: todo se construye desde H0 siguiendo `BANDALL_ROADMAP.md`.
+- Canónicos: `BANDALL_BLUEPRINT.md` (diseño) y `BANDALL_ROADMAP.md` (hitos H0–H9 y gates).
+- `Blueprint — Servicio de seguridad TOTP en Rust.md` es un borrador obsoleto (nombre interno `sentinel`): **no usarlo ni tomarlo como referencia**; se elimina en H0.
+- Trabaja **solo en el hito activo**. MVP = H0–H4; H5 es obligatoria antes de producción.
 
-## 2. Estructura
-Workspace Cargo. Directorio `crates/<x>` = paquete `bandall-<x>`. Binario: `bandall`.
-- `totp-core`: matemática TOTP/HOTP, base32, otpauth. **Puro: sin red, sin DB, sin reloj propio.**
-- `vault`, `tokens`, `policy`, `store`, `sigs`, `api`, `sdk-axum`, `authenticator-core`, `cli`.
-Las dependencias fluyen hacia `totp-core`, nunca al revés. No crear crates nuevos sin ADR.
+## Proyecto
+BandAll: servicio de seguridad TOTP (RFC 6238/4226) en Rust con autenticador offline, emisión/verificación de tokens, verificación S2S y firmas HMAC. Tres modos: servicio independiente, sidecar/forward-auth y librería embebida.
 
-## 3. Comandos (todo debe pasar antes de proponer un PR)
+## Estructura objetivo (workspace Cargo)
+`crates/<x>` = paquete `bandall-<x>`; binario `bandall`.
+- `totp-core`: matemática HOTP/TOTP, base32, otpauth. **Puro**: sin red, sin DB y sin `SystemTime::now()` (el tiempo se inyecta).
+- `vault`, `tokens`, `policy`, `store` (Postgres/SQLite), `sigs`, `api` (axum), `sdk-axum`, `authenticator-core`, `cli`.
+- `docs/adr/`, `docs/threat-model.md`, `deploy/` (Dockerfile, compose, Helm).
+- Las dependencias fluyen **hacia** `totp-core`, nunca al revés. No crear crates sin ADR.
+
+## Comandos
+Aún no existen (H0 crea `justfile` y CI). Objetivo, en este orden:
 ```
-just check        # (se crea en H0) ejecuta lo mismo que el CI
+just check        # = lo mismo que CI: fmt + clippy + tests + deny + audit
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
+cargo test -p bandall-totp-core             # un solo crate
+cargo test -p bandall-api <filtro>          # tests cuyo nombre coincide
 cargo deny check && cargo audit
+docker build -f deploy/Dockerfile .
+docker compose -f deploy/compose/compose.yaml up --build
 ```
+Esta máquina ya tiene `cargo`/`rustc` 1.98.1 y `docker` 29.8.1; **`just`, `cargo-deny` y `cargo-audit` no están instalados** (`cargo install just cargo-deny cargo-audit`).
 
-## 4. Reglas de seguridad (innegociables)
-1. `#![forbid(unsafe_code)]` en todos los crates. Sin excepciones.
-2. **No inventes criptografía.** Solo primitivas de crates RustCrypto o `aws-lc-rs`. No implementes HMAC, AEAD, KDF ni comparaciones a mano.
-3. Comparar códigos, MAC, hashes y tokens **solo** con `subtle` (tiempo constante). Prohibido `==` sobre secretos.
-4. Aleatoriedad solo del CSPRNG del SO (`getrandom`/`OsRng`). Prohibido `rand::thread_rng` para secretos, nonces o tokens.
-5. Secretos en `secrecy`/`zeroize`. Nunca en `String` suelto, `Debug`, logs, errores, métricas ni trazas.
-6. Los secretos TOTP se guardan **cifrados** (envelope + AAD). Nunca en claro, nunca en archivos de ejemplo, nunca en tests con valores reales.
-7. Antirreplay obligatorio: un OTP se acepta una sola vez (`UPDATE ... WHERE last_step < $step`, atómico).
-8. **Fail-closed:** ante error de DB, KMS, reloj o configuración, se **deniega**. Nunca "abrir por error".
-9. Respuestas uniformes ante usuario inexistente o código erróneo (anti-enumeración, tiempo uniforme).
-10. Validación estricta de tokens: algoritmo fijo, `iss`/`aud`/`exp` obligatorios. Prohibido aceptar `alg` desde el token.
-11. Refresh tokens: opacos, guardados como hash, con rotación y detección de reutilización.
-12. Nunca subir secretos, claves, `.env` reales ni vectores con datos de producción al repo.
+## Docker (decidido: dev + tests + CI + prod)
+- Builder `rust` + cargo-chef → runtime `gcr.io/distroless/cc-debian12:nonroot` fijado por digest.
+- non-root, rootfs read-only, `cap_drop: [ALL]`, `no-new-privileges`, límites de recursos.
+- La imagen no tiene shell ni curl: el healthcheck es el subcomando `bandall healthcheck`.
+- Secretos vía docker secrets o archivo con permisos 0400; nunca horneados en la imagen ni en `.env` versionados.
+- Compose en `deploy/compose/` (base, dev, test, demo, obs). Postgres 16 en contenedor para dev/tests.
+- Desde H5: escaneo (trivy/grype), SBOM (syft) y firma (cosign) en CI.
 
-## 5. Reglas de código
-- Prohibido `unwrap()`, `expect()`, `panic!`, indexado directo e `as` con pérdida fuera de tests. Usa errores tipados (`thiserror`).
-- El tiempo se **inyecta** como parámetro/trait (`Clock`); nada de `SystemTime::now()` dentro de la lógica.
-- Funciones pequeñas, tipos fuertes (newtypes para `Step`, `Secret`, `TenantId`), sin estado global mutable.
-- Código `async` solo en `api`, `store` y `sdk-axum`. El núcleo es síncrono.
-- Errores hacia el cliente: RFC 7807, sin detalles internos.
-- Comentarios solo para el "por qué"; documenta con `rustdoc` toda API pública.
+## Seguridad (innegociables)
+1. `#![forbid(unsafe_code)]` en todos los crates.
+2. No inventar criptografía: solo RustCrypto o `aws-lc-rs`. Comparar códigos/MAC/tokens solo con `subtle`; aleatoriedad solo del CSPRNG del SO.
+3. Secretos TOTP cifrados (envelope + AAD); en memoria `secrecy`/`zeroize`; nunca en claro, logs, errores, métricas ni en tests con valores reales.
+4. Antirreplay atómico: `UPDATE ... WHERE last_step < $step`; un OTP se acepta una sola vez.
+5. Fail-closed ante error de DB, KMS, reloj o configuración; respuestas uniformes ante usuario inexistente o código erróneo.
+6. Tokens con algoritmo fijo y `iss`/`aud`/`exp` obligatorios; refresh opaco, hasheado, con rotación y detección de reutilización.
+7. Nunca subir secretos, claves ni `.env` reales al repo.
 
-## 6. Pruebas (obligatorias en cada cambio)
-- Todo cambio de lógica trae pruebas. Todo bug corregido trae un test de regresión.
-- `totp-core`: vectores oficiales RFC 4226/6238 + `proptest`; parsers con `cargo-fuzz`.
-- Seguridad: cada regla de la sección 4 aplicable debe tener al menos una prueba **negativa** (replay, token alterado, AAD incorrecto, refresh reutilizado, etc.).
-- Concurrencia: verificar el mismo código en paralelo → exactamente un éxito.
-- No bajar la cobertura del núcleo (> 90 %).
+## Código
+- Prohibido `unwrap()`, `expect()`, `panic!`, indexado directo y `as` con pérdida fuera de tests; errores tipados (`thiserror`).
+- Tiempo inyectado (`Clock`); sin estado global mutable; tipos fuertes (`Step`, `Secret`, `TenantId`).
+- `async` solo en `api`, `store` y `sdk-axum`; el núcleo es síncrono.
+- Errores al cliente: RFC 7807 sin detalles internos. `rustdoc` en toda API pública.
+- Dependencias: justificar antes de añadirlas (mantenimiento, licencia, tamaño); `cargo deny` y `cargo audit` deben pasar.
 
-## 7. Dependencias
-- Antes de añadir una dependencia: justificarla en el PR (qué hace, mantenimiento, licencia, tamaño del árbol). Preferir pocas y conocidas.
-- Versiones fijadas por `Cargo.lock`; `cargo deny` y `cargo audit` deben pasar. No usar crates abandonados ni con licencias fuera de `deny.toml`.
+## Pruebas
+- Todo cambio de lógica trae tests; todo bug, un test de regresión.
+- `totp-core`: vectores RFC 4226/6238 + `proptest`; parsers con `cargo-fuzz`.
+- Cada regla de seguridad lleva al menos una prueba negativa (replay, token alterado, AAD incorrecto, refresh reutilizado, etc.).
+- Concurrencia: el mismo código verificado en paralelo → exactamente un éxito. Cobertura del núcleo > 90 %.
 
-## 8. Git y PRs
-- Commits en **Conventional Commits** (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`), en inglés.
-- Un PR = una issue, pequeño y revisable. Sin cambios ajenos al alcance.
-- Descripción del PR: qué cambia, por qué, cómo se probó y **qué reglas de seguridad toca**.
+## Proceso
+- Un hito = milestone; una rama por issue; PR pequeño; **Conventional Commits en inglés**.
+- ADRs en `docs/adr/NNNN-titulo.md` (decisiones abiertas en `BANDALL_ROADMAP.md` §5); actualizar `docs/threat-model.md` antes de cada hito.
 - Cambios en cripto, tokens, vault o policy requieren revisión humana explícita.
+- Definition of done: código + tests (incl. negativos) + docs + CHANGELOG + `just check` verde + sin `unsafe` + sin secretos en logs + ADR si aplica.
+- No abrir el siguiente hito sin cerrar el gate del actual.
 
-## 9. Cuándo detenerte y preguntar
-Detente si: la tarea toca algo fuera del hito activo · hay que elegir entre seguridad y comodidad · falta un requisito · una regla de este archivo parece impedir la solución · necesitas una dependencia nueva o un crate nuevo · el cambio altera un formato persistido (ciphertext, esquema DB, claims de token). **No improvises**: propón opciones con pros/contras.
+## Cuándo detenerse y preguntar
+Tarea fuera del hito activo · elección entre seguridad y comodidad · requisito faltante · dependencia o crate nuevo · cambio de formato persistido (ciphertext, esquema DB, claims de token) · documentos en conflicto. **No improvisar**: proponer opciones con pros/contras.
 
-## 10. Definición de hecho
-Código + pruebas (incluidas las negativas) + docs + CHANGELOG + `just check` verde + sin `unsafe` + sin secretos en logs + ADR si hubo decisión de diseño.
-
-## 11. Idioma y estilo
-Documentación y comunicación en **español**; identificadores, comentarios de código y mensajes de commit en **inglés**. Respuestas del agente: breves, con el cambio hecho, cómo verificarlo y los riesgos pendientes.
+## Idioma
+Documentación y comunicación en español; identificadores, comentarios de código y commits en inglés.
