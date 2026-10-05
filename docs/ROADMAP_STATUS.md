@@ -19,8 +19,10 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 
 ## Bloqueos que impiden cerrar H2–H6
 
-1. **GitHub CI no arranca**: cuenta bloqueada por facturación; ningún job
-   llega a ejecutarse (ver anotaciones del run de CI).
+1. **GitHub CI no arranca**: cuenta bloqueada por facturación. Además, el
+   workflow era inválido (`defaults.run.timeout-minutes`), corregido en T1
+   (rama `ci/fix-workflow`): GitHub no llegaba a crear ningún job. Falta que
+   el humano confirme la facturación y que el primer run arranque.
 2. **Host inestable**: `rustc` ICE al enlazar proc-macro crates bajo `cargo`
    (misma orden a mano funciona). `docs/VERIFICATION.md` tiene el detalle y
    los comandos de verificación.
