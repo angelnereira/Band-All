@@ -33,3 +33,4 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 - H0: runtime Docker cambiado de distroless `cc` a `debian:12-slim` (ver ADR-0002).
 - H0: Postgres de desarrollo escucha en el puerto de host 5433 por defecto para no chocar con otros proyectos locales.
+- T1: `ci.yml` era **inválido**: `defaults.run.timeout-minutes` no existe en el esquema (GitHub creaba el run con 0 jobs). Timeouts por job, `concurrency` por ref, `totp-core` con umbral de cobertura del 90 % y los 12 SHAs re-verificados contra tags exactos con `git ls-remote`.
