@@ -16,7 +16,9 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host port defaults to 5433: 5432 is already taken on this machine by
+      # another project's Postgres (PlentyPay). Override with POSTGRES_PORT.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
