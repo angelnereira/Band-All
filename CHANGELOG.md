@@ -26,6 +26,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H6: demo legacy sin modificar (compose + nginx `auth_request`), guía de forward-auth y ejemplo embebido offline.
 - H7 (núcleo): `authenticator-core` (cuentas, códigos con cuenta atrás, aviso de deriva, backup cifrado opcional, ADR-0006 nativo+UniFFI).
 - H8: `/metrics` Prometheus, chart Helm, compose de observabilidad, script k6, runbooks, escaneo Trivy en CI y política de releases. Pendiente de entorno real: SLOs medidos, DR ensayado, `cargo-vet`/SBOM/`cosign`, TLS a Postgres/KMS, pentest y WebAuthn (H9).
+- Endurecimiento de configuración (ADR-0007): `deny.toml` con `yanked`/`wildcards` en `deny`, lints de casts y `print_*`/`todo`/`dbg` en el workspace, `overflow-checks` en release y test, CI en `ubuntu-24.04` con `timeout-minutes` y `--locked`, y `README.md`.
 
 ### Fixed
 
