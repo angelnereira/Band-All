@@ -9,3 +9,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Unified Postgres + SQLite access with migrations.
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls-ring", "postgres", "sqlite", "macros", "migrate"] }
+# Async runtime (tests and Exector bounds).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+# Random TEXT ids (uuid v4).
+uuid = { version = "1", features = ["v4"] }
+# Typed errors.
+thiserror = "2"
