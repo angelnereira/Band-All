@@ -46,8 +46,9 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | Tarea | Estado |
 |---|---|
 | T1 `ci.yml` | ✅ fusionada (PR #2) |
-| T2 rate limit atómico + scopes + backend `database` | ✅ implementada y verificada en local (rama `fix/atomic-rate-limit`, 82 tests verdes); falta CI + Postgres real |
-| T3–T10 | pendientes (en el orden del brief) |
+| T2 rate limit atómico + scopes + backend `database` | ✅ PR #3 (rama `fix/atomic-rate-limit`, 82 tests verdes); falta CI + Postgres real |
+| T3 ventana de 3 pasos y deriva observada | ✅ rama `fix/verification-window-and-drift` (25 tests de `api` verdes); ADR-0009 **esperando decisión humana** |
+| T4–T10 | pendientes (en el orden del brief) |
 
 ## Nota de proceso
 
