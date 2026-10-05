@@ -54,6 +54,14 @@ impl Otpauth {
         &self.account
     }
 
+    /// Enrolled secret as strict Base32. The app scanned this QR itself, so
+    /// it owns the value; it must still move it straight into platform
+    /// storage (Keystore/Enclave), never into logs.
+    #[must_use]
+    pub fn secret_base32(&self) -> String {
+        self.secret.to_base32()
+    }
+
     /// Renders the `otpauth://totp/...` URI for the QR code.
     #[must_use]
     pub fn to_uri(&self) -> String {
