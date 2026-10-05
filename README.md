@@ -17,6 +17,7 @@ servicio independiente, sidecar/forward-auth y librería embebida.
 | [`BANDALL_ROADMAP.md`](BANDALL_ROADMAP.md) | Hitos H0–H9, gates y checklist de producción |
 | [`AGENTS.md`](AGENTS.md) | Reglas de trabajo para agentes (manda sobre suposiciones) |
 | [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | Estado real de tests y del entorno |
+| [`docs/ROADMAP_STATUS.md`](docs/ROADMAP_STATUS.md) | Tablero de gates por hito (qué está cerrado de verdad) |
 | [`docs/threat-model.md`](docs/threat-model.md) | Amenazas, mitigaciones y brechas |
 | [`docs/asvs-l3-review.md`](docs/asvs-l3-review.md) | Autoevaluación OWASP ASVS L3 |
 | [`docs/guides-forward-auth.md`](docs/guides-forward-auth.md) | nginx / Envoy / Traefik, SDKs, firmas |
