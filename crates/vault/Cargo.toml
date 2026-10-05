@@ -9,3 +9,16 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# AEAD envelope encryption (XChaCha20-Poly1305). No custom crypto.
+chacha20poly1305 = "0.10"
+# OS CSPRNG for nonces, DEKs, salts and recovery codes.
+getrandom = "0.2"
+# Secret handling: zeroed on drop, redacted Debug.
+secrecy = "0.10"
+# Argon2id for recovery-code hashes.
+argon2 = "0.5"
+password-hash = "0.5"
+# Strict Base32 for printable recovery codes.
+data-encoding = "2"
+# Typed errors.
+thiserror = "2"
