@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
-use crate::types::{Factor, NewFactor, Subject, Tenant};
+use crate::types::{Factor, NewFactor, RecoveryHash, Subject, Tenant};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
 
@@ -20,8 +20,9 @@ pub struct SqliteStore {
 impl SqliteStore {
     /// Connects to `url` without running migrations.
     pub async fn connect(url: &str) -> Result<Self, Error> {
+        let options = SqliteConnectOptions::from_str(url)?.foreign_keys(true);
         Ok(Self {
-            pool: SqlitePool::connect(url).await?,
+            pool: SqlitePool::connect_with(options).await?,
         })
     }
 
@@ -29,7 +30,8 @@ impl SqliteStore {
     pub async fn in_memory() -> Result<Self, Error> {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")?
             .create_if_missing(true)
-            .shared_cache(true);
+            .shared_cache(true)
+            .foreign_keys(true);
         Ok(Self {
             pool: SqlitePool::connect_with(options).await?,
         })
@@ -42,7 +44,7 @@ impl SqliteStore {
     }
 }
 
-const FACTOR_COLS: &str = "id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, created_at, confirmed_at";
+const FACTOR_COLS: &str = "id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, drift_steps, created_at, confirmed_at";
 
 impl Store for SqliteStore {
     fn create_tenant(&self, name: &str, now_secs: i64) -> BoxFuture<'_, Result<Tenant, Error>> {
@@ -90,7 +92,7 @@ impl Store for SqliteStore {
 
     fn create_factor(&self, input: NewFactor) -> BoxFuture<'_, Result<Factor, Error>> {
         let factor = Factor {
-            id: Uuid::new_v4().to_string(),
+            id: input.id,
             tenant_id: input.tenant_id,
             subject_id: input.subject_id,
             status: input.status,
@@ -104,12 +106,13 @@ impl Store for SqliteStore {
             digits: input.digits,
             period: input.period,
             last_step: None,
+            drift_steps: 0,
             created_at: input.created_at,
             confirmed_at: None,
         };
         Box::pin(async move {
             sqlx::query(
-                "INSERT INTO factors (id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO factors (id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, drift_steps, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&factor.id)
             .bind(&factor.tenant_id)
@@ -125,11 +128,29 @@ impl Store for SqliteStore {
             .bind(factor.digits)
             .bind(factor.period)
             .bind(factor.last_step)
+            .bind(factor.drift_steps)
             .bind(factor.created_at)
             .bind(factor.confirmed_at)
             .execute(&self.pool)
             .await?;
             Ok(factor)
+        })
+    }
+
+    fn find_subject<'a>(
+        &'a self,
+        tenant_id: &'a str,
+        external_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Subject>, Error>> {
+        Box::pin(async move {
+            let row = sqlx::query_as::<_, Subject>(
+                "SELECT id, tenant_id, external_id, created_at FROM subjects WHERE tenant_id = ? AND external_id = ?",
+            )
+            .bind(tenant_id)
+            .bind(external_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row)
         })
     }
 
@@ -227,6 +248,46 @@ impl Store for SqliteStore {
     fn health(&self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             sqlx::query("SELECT 1").execute(&self.pool).await?;
+            Ok(())
+        })
+    }
+
+    fn record_drift<'a>(
+        &'a self,
+        factor_id: &'a str,
+        drift_steps: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("UPDATE factors SET drift_steps = ? WHERE id = ?")
+                .bind(drift_steps)
+                .bind(factor_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn list_recovery_hashes<'a>(
+        &'a self,
+        factor_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<RecoveryHash>, Error>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as::<_, RecoveryHash>(
+                "SELECT code_hash, used_at FROM recovery_codes WHERE factor_id = ?",
+            )
+            .bind(factor_id)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows)
+        })
+    }
+
+    fn delete_factor<'a>(&'a self, factor_id: &'a str) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("DELETE FROM factors WHERE id = ?")
+                .bind(factor_id)
+                .execute(&self.pool)
+                .await?;
             Ok(())
         })
     }

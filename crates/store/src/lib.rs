@@ -26,4 +26,4 @@ pub use error::Error;
 pub use postgres::PgStore;
 pub use sqlite::SqliteStore;
 pub use store::Store;
-pub use types::{Factor, NewFactor, Subject, Tenant};
+pub use types::{Factor, NewFactor, RecoveryHash, Subject, Tenant, new_factor_id};

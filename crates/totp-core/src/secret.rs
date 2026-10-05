@@ -54,6 +54,14 @@ impl Secret {
         base32::encode(self.bytes())
     }
 
+    /// Raw secret bytes for immediate sealing or HMAC. The caller must not
+    /// retain, log or clone the slice: seal it (`bandall-vault`) or feed it
+    /// to HMAC and drop it.
+    #[must_use]
+    pub fn expose_secret_bytes(&self) -> &[u8] {
+        self.bytes()
+    }
+
     /// Raw secret bytes. Visible inside this crate only; callers use
     /// `hotp`/`totp` functions that expose the secret solely to HMAC.
     pub(crate) fn bytes(&self) -> &[u8] {

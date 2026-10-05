@@ -11,7 +11,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::error::Error;
-use crate::types::{Factor, NewFactor, Subject, Tenant};
+use crate::types::{Factor, NewFactor, RecoveryHash, Subject, Tenant};
 
 /// Boxed future shorthand for trait methods.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -28,6 +28,13 @@ pub trait Store: Send + Sync {
         external_id: &str,
         now_secs: i64,
     ) -> BoxFuture<'_, Result<Subject, Error>>;
+
+    /// Finds a subject by its caller-provided external id.
+    fn find_subject<'a>(
+        &'a self,
+        tenant_id: &'a str,
+        external_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Subject>, Error>>;
 
     /// Inserts a factor with a fresh random id.
     fn create_factor(&self, factor: NewFactor) -> BoxFuture<'_, Result<Factor, Error>>;
@@ -73,4 +80,20 @@ pub trait Store: Send + Sync {
 
     /// Liveness probe (`SELECT 1`).
     fn health(&self) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Persists the learned clock drift (bounded to ±5 by callers).
+    fn record_drift<'a>(
+        &'a self,
+        factor_id: &'a str,
+        drift_steps: i64,
+    ) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Lists recovery-code hashes for a factor (used and unused).
+    fn list_recovery_hashes<'a>(
+        &'a self,
+        factor_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<RecoveryHash>, Error>>;
+
+    /// Deletes a factor and its recovery codes (post-recovery re-enrolment).
+    fn delete_factor<'a>(&'a self, factor_id: &'a str) -> BoxFuture<'a, Result<(), Error>>;
 }

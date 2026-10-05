@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
-use crate::types::{Factor, NewFactor, Subject, Tenant};
+use crate::types::{Factor, NewFactor, RecoveryHash, Subject, Tenant};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
 
@@ -33,7 +33,7 @@ impl PgStore {
     }
 }
 
-const FACTOR_COLS: &str = "id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, created_at, confirmed_at";
+const FACTOR_COLS: &str = "id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, drift_steps, created_at, confirmed_at";
 
 impl Store for PgStore {
     fn create_tenant(&self, name: &str, now_secs: i64) -> BoxFuture<'_, Result<Tenant, Error>> {
@@ -81,7 +81,7 @@ impl Store for PgStore {
 
     fn create_factor(&self, input: NewFactor) -> BoxFuture<'_, Result<Factor, Error>> {
         let factor = Factor {
-            id: Uuid::new_v4().to_string(),
+            id: input.id,
             tenant_id: input.tenant_id,
             subject_id: input.subject_id,
             status: input.status,
@@ -95,12 +95,13 @@ impl Store for PgStore {
             digits: input.digits,
             period: input.period,
             last_step: None,
+            drift_steps: 0,
             created_at: input.created_at,
             confirmed_at: None,
         };
         Box::pin(async move {
             sqlx::query(
-                "INSERT INTO factors (id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, created_at, confirmed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
+                "INSERT INTO factors (id, tenant_id, subject_id, status, secret_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, algorithm, digits, period, last_step, drift_steps, created_at, confirmed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
             )
             .bind(&factor.id)
             .bind(&factor.tenant_id)
@@ -116,11 +117,29 @@ impl Store for PgStore {
             .bind(factor.digits)
             .bind(factor.period)
             .bind(factor.last_step)
+            .bind(factor.drift_steps)
             .bind(factor.created_at)
             .bind(factor.confirmed_at)
             .execute(&self.pool)
             .await?;
             Ok(factor)
+        })
+    }
+
+    fn find_subject<'a>(
+        &'a self,
+        tenant_id: &'a str,
+        external_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Subject>, Error>> {
+        Box::pin(async move {
+            let row = sqlx::query_as::<_, Subject>(
+                "SELECT id, tenant_id, external_id, created_at FROM subjects WHERE tenant_id = $1 AND external_id = $2",
+            )
+            .bind(tenant_id)
+            .bind(external_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row)
         })
     }
 
@@ -218,6 +237,46 @@ impl Store for PgStore {
     fn health(&self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             sqlx::query("SELECT 1").execute(&self.pool).await?;
+            Ok(())
+        })
+    }
+
+    fn record_drift<'a>(
+        &'a self,
+        factor_id: &'a str,
+        drift_steps: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("UPDATE factors SET drift_steps = $1 WHERE id = $2")
+                .bind(drift_steps)
+                .bind(factor_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn list_recovery_hashes<'a>(
+        &'a self,
+        factor_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<RecoveryHash>, Error>> {
+        Box::pin(async move {
+            let rows = sqlx::query_as::<_, RecoveryHash>(
+                "SELECT code_hash, used_at FROM recovery_codes WHERE factor_id = $1",
+            )
+            .bind(factor_id)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows)
+        })
+    }
+
+    fn delete_factor<'a>(&'a self, factor_id: &'a str) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("DELETE FROM factors WHERE id = $1")
+                .bind(factor_id)
+                .execute(&self.pool)
+                .await?;
             Ok(())
         })
     }

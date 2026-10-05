@@ -3,10 +3,11 @@
 
 use crate::error::Error;
 use crate::store::Store;
-use crate::types::NewFactor;
+use crate::types::{NewFactor, new_factor_id};
 
 fn dummy_factor(tenant_id: &str, subject_id: &str) -> NewFactor {
     NewFactor {
+        id: new_factor_id(),
         tenant_id: tenant_id.to_string(),
         subject_id: subject_id.to_string(),
         status: "pending".to_string(),
@@ -102,6 +103,24 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
             .use_recovery_code(&factor.id, "hash-b", 1_700_000_203)
             .await?
     );
+
+    // Subject lookup, drift persistence and factor deletion.
+    assert!(store.find_subject(&tenant.id, "alice").await?.is_some());
+    assert!(store.find_subject(&tenant.id, "nobody").await?.is_none());
+    store.record_drift(&factor.id, -2).await?;
+    let drifted = store
+        .get_factor(&tenant.id, &subject.id, &factor.id)
+        .await?
+        .ok_or(Error::CorruptRow)?;
+    assert_eq!(drifted.drift(), -2);
+    store.delete_factor(&factor.id).await?;
+    assert!(
+        store
+            .get_factor(&tenant.id, &subject.id, &factor.id)
+            .await?
+            .is_none()
+    );
+    assert!(store.list_recovery_hashes(&factor.id).await?.is_empty());
 
     Ok(())
 }
