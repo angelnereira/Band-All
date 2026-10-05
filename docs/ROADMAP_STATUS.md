@@ -32,8 +32,17 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 1. Resolver facturación de GitHub (o correr el gate en otra máquina) →
    `just check` + batería Postgres + E2E.
 2. Fusionar rama `feat/pg-tls-enforcement` tras verificar (ADR-0008).
-3. Implementar `policy_backend = "database"` (ADR-0008).
+3. Implementar `policy_backend = "database"` (ADR-0008). **Implementado en T2**
+   (rama `fix/atomic-rate-limit`); falta verificación.
 4. Recién entonces cerrar H2→H6 en orden y abrir H7 UI / H8 DR.
+
+## Remediación de la revisión de seguridad (`docs/AGENT_BRIEF.md`)
+
+| Tarea | Estado |
+|---|---|
+| T1 `ci.yml` | ✅ fusionada (PR #2) |
+| T2 rate limit atómico + scopes + backend `database` | rama `fix/atomic-rate-limit`; pendiente de verificación en host estable |
+| T3–T10 | pendientes (en el orden del brief) |
 
 ## Nota de proceso
 

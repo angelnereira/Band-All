@@ -1,6 +1,6 @@
 # ADR-0008: Estado compartido de rate-limit y requisitos de producción
 
-- **Estado:** aceptado (plan definido; implementación bloqueada por el entorno, ver `docs/VERIFICATION.md`)
+- **Estado:** aceptado (backend `database` implementado en T2; verificación de la batería pendiente del host, ver `docs/VERIFICATION.md`)
 - **Fecha:** 2026-10-05
 - **Decisores:** Angel Nereira
 
@@ -63,3 +63,33 @@ producción marcó esto como bloqueante (junto con TLS a Postgres y el KMS real)
   forma global: 5 fallos reales, no `5 × réplicas`.
 - Coste: dos sentencias SQL más por verificación fallida (no en la vía feliz).
 - El modo embebido (H6) sigue en memoria: es un proceso único sin red.
+
+## Enmienda 2026-10-05 (implementación T2)
+
+Al implementar el backend aparecieron dos ajustes necesarios sobre el esquema
+y el contrato de métodos; ninguno afecta a compatibilidad porque la migración 6
+nunca llegó a aplicarse:
+
+1. **Clave sustituta en `auth_failures`.** La PK `(policy_key, failed_at)`
+   prevista colapsa en una sola fila todos los intentos del mismo segundo:
+   una ráfaga concurrente habría pasado el límite entera (el `INSERT`
+   idempotente no incrementaba el conteo). El esquema final es
+   `id BIGSERIAL/INTEGER PRIMARY KEY AUTOINCREMENT` + índice
+   `(policy_key, failed_at)`; **cada intento cuenta**.
+2. **`reserve_auth_attempt(key, now, limits)` es la operación atómica del
+   gate**: en una transacción poda la ventana, cuenta y —solo si la decisión
+   es `Allow`— inserta el intento. La serialización es por clave (advisory
+   lock `hashtextextended` en Postgres, `BEGIN IMMEDIATE` en SQLite). Los
+   intentos **rechazados no se registran**: si lo hicieran, un flood continuo
+   extendería la ventana indefinidamente. Los tres métodos del ADR original
+   (`count_auth_failures`, `record_auth_failure`, `clear_auth_failures`) se
+   mantienen como contrato de grano fino.
+3. La decisión se centraliza en `bandall_policy::evaluate`, compartida por
+   ambos backends, para que memoria y base de datos denieguen exactamente
+   igual. La lockout se deriva de la ventana: dura `lockout_secs` o hasta que
+   los intentos expiren, lo que ocurra antes; por eso `Limits::default()`
+   alinea `window_secs` con `lockout_secs` (900 s) y conserva el bloqueo
+   completo de 15 minutos.
+
+Además, los límites pasan a ser por ámbito: `factor` (estricto, lockout),
+`tenant` e `ip` (techos altos configurables, solo `RetryAfter`/429).
