@@ -7,7 +7,7 @@
 //! ```
 //! use bandall_totp_core::{Secret, TotpParams, totp};
 //!
-//! let secret = Secret::from_base32("JBSWY3DPEHPK3PXP")?;
+//! let secret = Secret::from_base32("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")?;
 //! let params = TotpParams::default_params();
 //! let code = totp::generate(&secret, params, 1_700_000_000)?;
 //! let step = totp::verify(&secret, params, &code, 1_700_000_000, 1, None)?;

@@ -173,7 +173,7 @@ mod tests {
             algorithm: "SHA256".to_string(),
             digits: 6,
             period_secs: 30,
-            secret_base32: "JBSWY3DPEHPK3PXP".to_string(),
+            secret_base32: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".to_string(),
         }
     }
 

@@ -188,8 +188,9 @@ mod tests {
 
     #[test]
     fn parses_typical_uri() {
+        // 160-bit secret (20 bytes), as Google/Microsoft Authenticator issue.
         let entry = Otpauth::parse(
-            "otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example&algorithm=SHA1&digits=6&period=30",
+            "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=6&period=30",
         )
         .unwrap();
         assert_eq!(entry.issuer(), "Example");
@@ -217,8 +218,13 @@ mod tests {
     #[test]
     fn rejects_bad_uris() {
         assert!(Otpauth::parse("https://example.com").is_err());
-        assert!(Otpauth::parse("otpauth://hotp/a?secret=JBSWY3DPEHPK3PXP").is_err());
+        assert!(
+            Otpauth::parse("otpauth://hotp/a?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").is_err()
+        );
         assert!(Otpauth::parse("otpauth://totp/a?issuer=x").is_err());
-        assert!(Otpauth::parse("otpauth://totp/A:a?secret=JBSWY3DPEHPK3PXP&issuer=B").is_err());
+        assert!(
+            Otpauth::parse("otpauth://totp/A:a?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=B")
+                .is_err()
+        );
     }
 }

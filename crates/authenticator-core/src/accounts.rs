@@ -180,7 +180,7 @@ pub fn clock_skew(device_secs: u64, reference_secs: u64) -> (u64, bool) {
 mod tests {
     use super::{Account, AccountStore, clock_skew};
 
-    const URI: &str = "otpauth://totp/BandAll:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=BandAll&algorithm=SHA256&digits=6&period=30";
+    const URI: &str = "otpauth://totp/BandAll:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=BandAll&algorithm=SHA256&digits=6&period=30";
 
     #[test]
     fn import_and_code() {

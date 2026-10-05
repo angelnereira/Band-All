@@ -24,7 +24,7 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     // In production this URI arrives once, as a QR code.
-    let uri = "otpauth://totp/BandAll:demo@example.com?secret=JBSWY3DPEHPK3PXP&issuer=BandAll&algorithm=SHA256&digits=6&period=30";
+    let uri = "otpauth://totp/BandAll:demo@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=BandAll&algorithm=SHA256&digits=6&period=30";
     let entry = Otpauth::parse(uri).map_err(|error| error.to_string())?;
     let params = TotpParams::new(
         entry.params().algorithm(),
@@ -39,7 +39,8 @@ fn run() -> Result<(), String> {
         .map(|window| window.as_secs())
         .map_err(|error| format!("clock: {error}"))?;
 
-    let secret = Secret::from_base32("JBSWY3DPEHPK3PXP").map_err(|error| error.to_string())?;
+    let secret = Secret::from_base32("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+        .map_err(|error| error.to_string())?;
     let code = totp::generate(&secret, params, now).map_err(|error| error.to_string())?;
     let period = params.period().as_u64();
     let remaining = period.saturating_sub(now % period);
