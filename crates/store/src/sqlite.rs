@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
 use crate::types::{
-    AuditEntry, Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    ApiClient, AuditEntry, Factor, NewApiClient, NewFactor, NewRefresh, RecoveryHash, RefreshEntry,
+    Session, Subject, Tenant,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
@@ -468,6 +469,72 @@ impl Store for SqliteStore {
             .fetch_all(&self.pool)
             .await?;
             Ok(rows)
+        })
+    }
+
+    fn create_api_client(&self, input: NewApiClient) -> BoxFuture<'_, Result<ApiClient, Error>> {
+        let client = ApiClient {
+            key_id: input.key_id,
+            tenant_id: input.tenant_id,
+            sealed_version: input.sealed_version,
+            kek_id: input.kek_id,
+            wrapped_dek: input.wrapped_dek,
+            wrapped_nonce: input.wrapped_nonce,
+            nonce: input.nonce,
+            ciphertext: input.ciphertext,
+            scopes: input.scopes,
+            created_at: input.created_at,
+            revoked_at: None,
+        };
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO api_clients (key_id, tenant_id, sealed_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, scopes, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+            )
+            .bind(&client.key_id)
+            .bind(&client.tenant_id)
+            .bind(client.sealed_version)
+            .bind(&client.kek_id)
+            .bind(&client.wrapped_dek)
+            .bind(&client.wrapped_nonce)
+            .bind(&client.nonce)
+            .bind(&client.ciphertext)
+            .bind(&client.scopes)
+            .bind(client.created_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(client)
+        })
+    }
+
+    fn find_api_client<'a>(
+        &'a self,
+        key_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<ApiClient>, Error>> {
+        Box::pin(async move {
+            let row = sqlx::query_as::<_, ApiClient>(
+                "SELECT key_id, tenant_id, sealed_version, kek_id, wrapped_dek, wrapped_nonce, nonce, ciphertext, scopes, created_at, revoked_at FROM api_clients WHERE key_id = ?",
+            )
+            .bind(key_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row)
+        })
+    }
+
+    fn revoke_api_client<'a>(
+        &'a self,
+        key_id: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query(
+                "UPDATE api_clients SET revoked_at = ? WHERE key_id = ? AND revoked_at IS NULL",
+            )
+            .bind(now_secs)
+            .bind(key_id)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
         })
     }
 }

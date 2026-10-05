@@ -12,7 +12,8 @@ use std::pin::Pin;
 
 use crate::error::Error;
 use crate::types::{
-    AuditEntry, Factor, NewFactor, NewRefresh, RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    ApiClient, AuditEntry, Factor, NewApiClient, NewFactor, NewRefresh, RecoveryHash, RefreshEntry,
+    Session, Subject, Tenant,
 };
 
 /// Boxed future shorthand for trait methods.
@@ -160,4 +161,20 @@ pub trait Store: Send + Sync {
 
     /// Lists audit entries in sequence order (bounded, newest last).
     fn list_audit(&self, limit: i64) -> BoxFuture<'_, Result<Vec<AuditEntry>, Error>>;
+
+    /// Creates an API client with a caller-assigned key id.
+    fn create_api_client(&self, client: NewApiClient) -> BoxFuture<'_, Result<ApiClient, Error>>;
+
+    /// Fetches an API client by key id (revoked included; callers check).
+    fn find_api_client<'a>(
+        &'a self,
+        key_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<ApiClient>, Error>>;
+
+    /// Revokes an API client (idempotent).
+    fn revoke_api_client<'a>(
+        &'a self,
+        key_id: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>>;
 }

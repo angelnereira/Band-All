@@ -3,7 +3,7 @@
 
 use crate::error::Error;
 use crate::store::Store;
-use crate::types::{NewFactor, NewRefresh, new_factor_id};
+use crate::types::{NewApiClient, NewFactor, NewRefresh, new_factor_id};
 
 fn dummy_factor(tenant_id: &str, subject_id: &str) -> NewFactor {
     NewFactor {
@@ -180,6 +180,31 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].event, "mfa.verified");
     assert_eq!(entries[1].prev_hash, vec![1u8; 32]);
+
+    // API clients: create, lookup, revoke.
+    let client = store
+        .create_api_client(NewApiClient {
+            key_id: "key-1".to_string(),
+            tenant_id: tenant.id.clone(),
+            sealed_version: 1,
+            kek_id: "kek-1".to_string(),
+            wrapped_dek: vec![1u8; 48],
+            wrapped_nonce: vec![2u8; 24],
+            nonce: vec![3u8; 24],
+            ciphertext: vec![4u8; 48],
+            scopes: "verify".to_string(),
+            created_at: 1_700_000_500,
+        })
+        .await?;
+    assert!(client.revoked_at.is_none());
+    assert!(store.find_api_client("key-1").await?.is_some());
+    assert!(store.find_api_client("missing").await?.is_none());
+    store.revoke_api_client("key-1", 1_700_000_501).await?;
+    let dead_client = store
+        .find_api_client("key-1")
+        .await?
+        .ok_or(Error::CorruptRow)?;
+    assert!(dead_client.revoked_at.is_some());
 
     Ok(())
 }

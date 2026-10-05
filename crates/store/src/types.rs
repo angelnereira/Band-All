@@ -154,6 +154,58 @@ pub struct NewRefresh {
     pub expires_at: i64,
 }
 
+/// API client row: sealed HMAC key plus scopes.
+#[derive(Debug, Clone, FromRow)]
+pub struct ApiClient {
+    /// Public key identifier (`X-Key-Id`).
+    pub key_id: String,
+    /// Owning tenant.
+    pub tenant_id: String,
+    /// Seal format version.
+    pub sealed_version: i16,
+    /// KEK id that wrapped the DEK.
+    pub kek_id: String,
+    /// Wrapped DEK bytes.
+    pub wrapped_dek: Vec<u8>,
+    /// DEK-wrapping nonce.
+    pub wrapped_nonce: Vec<u8>,
+    /// Data nonce.
+    pub nonce: Vec<u8>,
+    /// Encrypted key bytes.
+    pub ciphertext: Vec<u8>,
+    /// Space-separated scopes.
+    pub scopes: String,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+    /// Revocation time (`None` = live).
+    pub revoked_at: Option<i64>,
+}
+
+/// New API client to insert.
+#[derive(Debug, Clone)]
+pub struct NewApiClient {
+    /// Public key identifier.
+    pub key_id: String,
+    /// Owning tenant.
+    pub tenant_id: String,
+    /// Seal format version.
+    pub sealed_version: i16,
+    /// KEK id that wrapped the DEK.
+    pub kek_id: String,
+    /// Wrapped DEK bytes.
+    pub wrapped_dek: Vec<u8>,
+    /// DEK-wrapping nonce.
+    pub wrapped_nonce: Vec<u8>,
+    /// Data nonce.
+    pub nonce: Vec<u8>,
+    /// Encrypted key bytes.
+    pub ciphertext: Vec<u8>,
+    /// Space-separated scopes.
+    pub scopes: String,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+}
+
 /// Audit log entry: hash-chained for tamper evidence.
 #[derive(Debug, Clone, FromRow)]
 pub struct AuditEntry {
