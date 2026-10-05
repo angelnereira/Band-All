@@ -16,6 +16,7 @@ use crate::types::{
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
 
 /// Postgres-backed store.
+#[derive(Debug)]
 pub struct PgStore {
     pool: PgPool,
 }
@@ -655,16 +656,17 @@ fn window_start(now_secs: i64, limits: Limits) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::PgStore;
+    use crate::error::Error;
     use crate::tests_battery;
 
-    #[test]
-    fn rejects_clear_text_remote() {
+    #[tokio::test]
+    async fn rejects_clear_text_remote() {
         // Remote host without TLS: must be refused before any I/O.
-        let result = PgStore::connect("postgres://bandall:pw@db.internal:5432/bandall");
+        let result = PgStore::connect("postgres://bandall:pw@db.internal:5432/bandall").await;
         assert!(matches!(result, Err(Error::InsecureConnection)));
         // Unparseable URL: also refused (fail closed).
         assert!(matches!(
-            PgStore::connect("not-a-url"),
+            PgStore::connect("not-a-url").await,
             Err(Error::InsecureConnection)
         ));
     }

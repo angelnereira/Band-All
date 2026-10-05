@@ -11,6 +11,8 @@ workspace = true
 [dependencies]
 # Pure rate-limit decision table shared with the API (T2).
 bandall-policy = { path = "../policy" }
+# Parse Postgres URLs to enforce TLS on remote hosts (ADR-0008 / T9.1).
+url = "2.5"
 # Unified Postgres + SQLite access with migrations.
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls-ring", "postgres", "sqlite", "macros", "migrate"] }
 # Async runtime (tests and Exector bounds).

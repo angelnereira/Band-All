@@ -224,6 +224,7 @@ pub struct AuditEntry {
     /// Entry hash.
     pub hash: Vec<u8>,
 }
+/// New factor to insert.
 #[derive(Debug, Clone)]
 pub struct NewFactor {
     /// Factor id (fresh UUID from `new_factor_id`).

@@ -282,9 +282,11 @@ pub async fn auth_failures<S: Store>(store: &S) -> Result<(), Error> {
         assert_eq!(remaining, 490);
     }
 
-    // Concurrent burst: exactly `max_attempts` callers may proceed.
+    // Concurrent burst: exactly `max_attempts` callers may proceed. Lockout
+    // is disabled so the burst only measures the window ceiling.
     let burst = Limits {
         max_attempts: 5,
+        lockout_after: 0,
         ..limits
     };
     let results = tokio::join!(

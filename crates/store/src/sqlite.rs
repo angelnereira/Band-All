@@ -17,6 +17,7 @@ use crate::types::{
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
 
 /// SQLite-backed store.
+#[derive(Debug)]
 pub struct SqliteStore {
     pool: SqlitePool,
 }
@@ -189,6 +190,7 @@ impl Store for SqliteStore {
             )
             .bind(step)
             .bind(factor_id)
+            .bind(step)
             .execute(&self.pool)
             .await?;
             Ok(result.rows_affected() == 1)
