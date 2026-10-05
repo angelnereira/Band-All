@@ -1,0 +1,104 @@
+//! Router assembly and server startup.
+//!
+//! Middleware order (outside in): request tracing, body limit, timeout.
+//! Graceful shutdown drains in-flight requests on SIGTERM/SIGINT.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::{Router, http::StatusCode, routing::get};
+use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
+
+use crate::config::Config;
+use crate::error::Error;
+use crate::health;
+use crate::state::AppState;
+
+/// Builds the router. MFA endpoints land here in later H3 commits.
+pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
+    Router::new()
+        .route("/healthz", get(health::healthz))
+        .route("/readyz", get(health::readyz))
+        .fallback(health::not_found)
+        .layer(TraceLayer::new_for_http())
+        .layer(RequestBodyLimitLayer::new(body_limit_bytes))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(10),
+        ))
+        .with_state(state)
+}
+
+/// Runs the server until SIGTERM/SIGINT, then shuts down gracefully.
+pub async fn serve(config: &Config, state: AppState) -> Result<(), Error> {
+    let listener = tokio::net::TcpListener::bind(&config.listen)
+        .await
+        .map_err(|e| Error::Config(format!("cannot bind {}: {e}", config.listen)))?;
+    tracing::info!(listen = %config.listen, "bandall listening");
+    axum::serve(listener, router(state, config.body_limit_bytes))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .map_err(|e| Error::Config(format!("server error: {e}")))?;
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => signal.recv().await,
+            Err(_) => std::future::pending().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("shutdown signal received");
+}
+
+/// Builds shared state from configuration: store, vault and service key.
+pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error> {
+    use bandall_store::{PgStore, SqliteStore};
+    use bandall_vault::{LocalKms, Vault};
+
+    let kms = Arc::new(
+        LocalKms::from_file(
+            config.kek_id.clone(),
+            std::path::Path::new(&config.kms_key_file),
+        )
+        .map_err(|_| Error::Config("cannot load KMS key".to_string()))?,
+    );
+    let vault = Arc::new(Vault::new(kms));
+    let service_key = config.service_key.clone();
+    match config.database {
+        crate::config::DatabaseKind::Sqlite => {
+            let store = SqliteStore::connect(&config.database_url).await?;
+            store.migrate().await?;
+            Ok((
+                AppState::new(Arc::new(store), vault, service_key),
+                StoreKind::Sqlite,
+            ))
+        }
+        crate::config::DatabaseKind::Postgres => {
+            let store = PgStore::connect(&config.database_url).await?;
+            store.migrate().await?;
+            Ok((
+                AppState::new(Arc::new(store), vault, service_key),
+                StoreKind::Postgres,
+            ))
+        }
+    }
+}
+
+/// Which backend was wired (for startup logs, no secrets).
+#[derive(Debug, Clone, Copy)]
+pub enum StoreKind {
+    /// Embedded SQLite.
+    Sqlite,
+    /// Postgres service.
+    Postgres,
+}

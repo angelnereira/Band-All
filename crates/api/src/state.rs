@@ -1,0 +1,39 @@
+//! Shared application state: store, vault and service-key verifier.
+
+use std::sync::Arc;
+
+use subtle::ConstantTimeEq;
+
+use bandall_store::Store;
+use bandall_vault::Vault;
+
+/// Application state shared by all handlers.
+#[derive(Clone)]
+pub struct AppState {
+    /// Persistence backend.
+    pub store: Arc<dyn Store>,
+    /// Envelope vault.
+    pub vault: Arc<Vault>,
+    /// Static S2S service key (constant-time compared).
+    service_key: Arc<str>,
+}
+
+impl AppState {
+    /// Builds state. The service key lives in an `Arc<str>` (no `String`
+    /// clones on the hot path, never logged).
+    pub fn new(store: Arc<dyn Store>, vault: Arc<Vault>, service_key: String) -> Self {
+        Self {
+            store,
+            vault,
+            service_key: Arc::from(service_key),
+        }
+    }
+
+    /// Constant-time service-key check for S2S endpoints.
+    #[must_use]
+    pub fn check_service_key(&self, candidate: &str) -> bool {
+        let expected = self.service_key.as_bytes();
+        let got = candidate.as_bytes();
+        expected.len() == got.len() && bool::from(expected.ct_eq(got))
+    }
+}

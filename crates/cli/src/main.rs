@@ -1,7 +1,8 @@
-//! bandall binary: CLI entrypoint (init, migrate, rotate-keys, audit...).
+//! `bandall` binary: server and maintenance commands.
 //!
-//! H0 only ships a skeleton so the container image has an executable and a
-//! healthcheck probe. Real commands arrive with their milestones.
+//! The distroless-era healthcheck probes through this binary
+//! (`bandall healthcheck`); with the current slim runtime the same subcommand
+//! backs the Docker `HEALTHCHECK`.
 #![forbid(unsafe_code)]
 #![cfg_attr(
     test,
@@ -13,44 +14,146 @@
     )
 )]
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-fn main() -> ExitCode {
-    let command = std::env::args().nth(1);
-    if matches!(command.as_deref(), None | Some("version")) {
-        println!("bandall {}", env!("CARGO_PKG_VERSION"));
-    }
-    ExitCode::from(exit_code_for(command.as_deref()))
+use clap::{Parser, Subcommand};
+
+/// BandAll security service.
+#[derive(Debug, Parser)]
+#[command(name = "bandall", version)]
+struct Cli {
+    /// Subcommand. Defaults to `serve` when omitted for container use.
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
-/// Maps a command name to the process exit code.
-///
-/// `version` and `healthcheck` exist from H0 so Docker can probe the binary;
-/// unknown commands fail closed with exit code 2.
-fn exit_code_for(command: Option<&str>) -> u8 {
-    match command {
-        None | Some("version") | Some("healthcheck") => 0,
-        Some(_) => 2,
+/// Subcommands.
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Runs the HTTP server (default).
+    Serve {
+        /// Configuration file path.
+        #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
+        config: PathBuf,
+    },
+    /// Runs pending database migrations and exits.
+    Migrate {
+        /// Configuration file path.
+        #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
+        config: PathBuf,
+    },
+    /// Prints an example configuration file.
+    InitConfig,
+    /// Prints the version.
+    Version,
+    /// Liveness probe for container healthchecks (always exits 0).
+    Healthcheck,
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    match cli.command.unwrap_or(Command::Serve {
+        config: PathBuf::from("bandall.toml"),
+    }) {
+        Command::Serve { config } => serve(&config),
+        Command::Migrate { config } => migrate(&config),
+        Command::InitConfig => {
+            print!("{}", bandall_api::Config::example());
+            ExitCode::SUCCESS
+        }
+        Command::Version => {
+            println!("bandall {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
+        Command::Healthcheck => ExitCode::SUCCESS,
+    }
+}
+
+fn setup_logging() {
+    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "bandall=info".to_string());
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+}
+
+fn serve(config_path: &std::path::Path) -> ExitCode {
+    setup_logging();
+    let config = load_config(config_path);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("cannot start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(async {
+        match bandall_api::server::build_state(&config).await {
+            Ok((state, kind)) => {
+                tracing::info!(store = ?kind, "state ready");
+                match bandall_api::server::serve(&config, state).await {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("server error: {e}");
+                        ExitCode::FAILURE
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("startup error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
+}
+
+fn migrate(config_path: &std::path::Path) -> ExitCode {
+    setup_logging();
+    let config = load_config(config_path);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build();
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("cannot start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    runtime.block_on(async {
+        match bandall_api::server::build_state(&config).await {
+            Ok(_) => {
+                println!("migrations applied");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("migration error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
+}
+
+fn load_config(path: &std::path::Path) -> bandall_api::Config {
+    match bandall_api::Config::load(path) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("configuration error: {e}");
+            std::process::exit(2);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::exit_code_for;
+    use super::Cli;
+    use super::Command;
+    use clap::Parser;
 
     #[test]
-    fn healthcheck_exits_successfully() {
-        assert_eq!(exit_code_for(Some("healthcheck")), 0);
-    }
-
-    #[test]
-    fn version_exits_successfully() {
-        assert_eq!(exit_code_for(Some("version")), 0);
-        assert_eq!(exit_code_for(None), 0);
-    }
-
-    #[test]
-    fn unknown_command_fails_closed() {
-        assert_eq!(exit_code_for(Some("bogus")), 2);
+    fn parses_serve_with_config() {
+        let cli = Cli::parse_from(["bandall", "serve", "--config", "/tmp/x.toml"]);
+        assert!(matches!(cli.command, Some(Command::Serve { .. })));
     }
 }

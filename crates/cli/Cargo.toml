@@ -13,3 +13,11 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+bandall-api = { path = "../api" }
+# Async runtime driving `bandall serve`.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# CLI parsing (including env var defaults).
+clap = { version = "4", features = ["derive", "env"] }
+# Logging bootstrap.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

@@ -13,6 +13,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H1: `totp-core` puro (HOTP/TOTP RFC 4226/6238, Base32 estricto, `otpauth://`, verificación con ventana ±N y antirreplay matemático). Tests delegados al CI.
 - H2 (parcial): `vault` con cifrado envolvente (KEK en `LocalKms`, DEK por factor, AAD por fila, `rewrap` para rotación) y códigos de recuperación Argon2id.
 - H2: `store` con trait de persistencia, backends Postgres/SQLite, migraciones y batería de conformidad compartida (SQLite en memoria + Postgres en CI).
+- H3 (parcial): fundación del API HTTP (config TOML+env, estado compartido, probes `/healthz`+`/readyz`, errores RFC 7807, serve con apagado ordenado) y CLI `serve`/`migrate`/`init-config`.
 
 ### Fixed
 

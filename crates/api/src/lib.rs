@@ -1,6 +1,6 @@
-//! bandall-api: axum HTTP API, middleware and OpenAPI.
+//! `bandall-api`: axum HTTP service (enrolment, verification, probes).
 //!
-//! Placeholder crate created in H0; implementation lands in its milestone.
+//! Async lives here by design; the crypto core stays synchronous.
 #![forbid(unsafe_code)]
 #![cfg_attr(
     test,
@@ -11,3 +11,13 @@
         clippy::indexing_slicing
     )
 )]
+
+pub mod config;
+pub mod error;
+pub mod health;
+pub mod server;
+pub mod state;
+
+pub use config::{Config, DatabaseKind};
+pub use error::Error;
+pub use state::AppState;
