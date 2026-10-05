@@ -22,6 +22,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - H6 (parcial): `sigs` (firmas HMAC de requests/webhooks: cadena canónica, tolerancia ±5 min, nonces de un uso, comparación constante).
 - H6: verificación de firmas por cliente (`/v1/sigs/verify` con claves selladas y scopes), forward-auth (`/v1/authz/check` para nginx/Envoy/Traefik) y CLI `apikey create/revoke`.
 - H6: `sdk-axum` (Layer `RequireToken` con verificación offline y claims en extensiones).
+- H6: vectores de conformidad compartidos + SDKs TypeScript y Python (JWT offline y firmas HMAC, job `sdks` en CI).
 
 ### Fixed
 
