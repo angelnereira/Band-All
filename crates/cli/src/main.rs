@@ -15,8 +15,7 @@
         clippy::indexing_slicing,
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_possible_wrap,
-        clippy::trivial_numeric_casts
+        clippy::cast_possible_wrap
     )
 )]
 
