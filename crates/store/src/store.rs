@@ -10,6 +10,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use bandall_policy::{Decision, Limits};
+
 use crate::error::Error;
 use crate::types::{
     ApiClient, AuditEntry, Factor, NewApiClient, NewFactor, NewRefresh, RecoveryHash, RefreshEntry,
@@ -158,6 +160,35 @@ pub trait Store: Send + Sync {
 
     /// Latest audit hash (`None` at genesis).
     fn last_audit_hash(&self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Error>>;
+
+    /// Counts recorded failures for `key` newer than `since` (Unix seconds).
+    fn count_auth_failures<'a>(
+        &'a self,
+        key: &'a str,
+        since: i64,
+    ) -> BoxFuture<'a, Result<i64, Error>>;
+
+    /// Appends one failed attempt. Every call counts, even for the same
+    /// second: bursts must not collapse into a single row.
+    fn record_auth_failure<'a>(
+        &'a self,
+        key: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Clears every recorded failure for `key` (successful verification).
+    fn clear_auth_failures<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Atomically decides and reserves one attempt for `key`: prunes expired
+    /// rows, counts the window and, when the decision is `Allow`, appends the
+    /// new attempt — all in one transaction, serialized per key. Concurrent
+    /// callers therefore stop exactly at the limit.
+    fn reserve_auth_attempt<'a>(
+        &'a self,
+        key: &'a str,
+        now_secs: i64,
+        limits: Limits,
+    ) -> BoxFuture<'a, Result<Decision, Error>>;
 
     /// Lists audit entries in sequence order (bounded, newest last).
     fn list_audit(&self, limit: i64) -> BoxFuture<'_, Result<Vec<AuditEntry>, Error>>;

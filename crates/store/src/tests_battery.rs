@@ -208,3 +208,105 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Shared rate-limit state (ADR-0008, T2): windowed counting, atomic
+/// reservation, derived lockout and clear-on-success.
+pub async fn auth_failures<S: Store>(store: &S) -> Result<(), Error> {
+    use bandall_policy::{Decision, Limits};
+
+    let limits = Limits {
+        max_attempts: 2,
+        window_secs: 1000,
+        base_backoff_secs: 10,
+        max_backoff_secs: 100,
+        lockout_after: 4,
+        lockout_secs: 500,
+    };
+
+    // Two attempts in the same second must both count: bursts must not
+    // collapse into a single row.
+    assert_eq!(
+        store.reserve_auth_attempt("af", 1000, limits).await?,
+        Decision::Allow
+    );
+    assert_eq!(
+        store.reserve_auth_attempt("af", 1000, limits).await?,
+        Decision::Allow
+    );
+    assert_eq!(store.count_auth_failures("af", 0).await?, 2);
+    // Third within the window: backoff measured from the last attempt.
+    assert_eq!(
+        store.reserve_auth_attempt("af", 1000, limits).await?,
+        Decision::RetryAfter(10)
+    );
+    // Refused attempts are not recorded.
+    assert_eq!(store.count_auth_failures("af", 0).await?, 2);
+    // Window filtering: nothing is newer than `since = 1000`.
+    assert_eq!(store.count_auth_failures("af", 1000).await?, 0);
+    // Success clears the key.
+    store.clear_auth_failures("af").await?;
+    assert_eq!(store.count_auth_failures("af", 0).await?, 0);
+    assert_eq!(
+        store.reserve_auth_attempt("af", 1000, limits).await?,
+        Decision::Allow
+    );
+
+    // The single-append contract from ADR-0008 stays available.
+    store.record_auth_failure("direct", 1000).await?;
+    assert_eq!(store.count_auth_failures("direct", 0).await?, 1);
+    store.clear_auth_failures("direct").await?;
+
+    // Sustained abuse derives a lockout from the window.
+    let strict = Limits {
+        max_attempts: 1,
+        window_secs: 1000,
+        base_backoff_secs: 5,
+        max_backoff_secs: 50,
+        lockout_after: 2,
+        lockout_secs: 500,
+    };
+    assert_eq!(
+        store.reserve_auth_attempt("lk", 1000, strict).await?,
+        Decision::Allow
+    );
+    assert_eq!(
+        store.reserve_auth_attempt("lk", 1010, strict).await?,
+        Decision::Allow
+    );
+    let locked = store.reserve_auth_attempt("lk", 1020, strict).await?;
+    assert!(
+        matches!(locked, Decision::Locked(_)),
+        "expected lockout, got {locked:?}"
+    );
+    if let Decision::Locked(remaining) = locked {
+        assert_eq!(remaining, 490);
+    }
+
+    // Concurrent burst: exactly `max_attempts` callers may proceed.
+    let burst = Limits {
+        max_attempts: 5,
+        ..limits
+    };
+    let results = tokio::join!(
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+        store.reserve_auth_attempt("burst", 5000, burst),
+    );
+    let decisions = [
+        results.0?, results.1?, results.2?, results.3?, results.4?, results.5?, results.6?,
+        results.7?,
+    ];
+    let allowed = decisions
+        .iter()
+        .filter(|decision| **decision == Decision::Allow)
+        .count();
+    assert_eq!(allowed, 5, "burst decisions: {decisions:?}");
+    assert_eq!(store.count_auth_failures("burst", 4999).await?, 5);
+
+    Ok(())
+}

@@ -2,6 +2,7 @@
 
 use std::str::FromStr;
 
+use bandall_policy::{Decision, Limits};
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use uuid::Uuid;
@@ -472,6 +473,66 @@ impl Store for SqliteStore {
         })
     }
 
+    fn count_auth_failures<'a>(
+        &'a self,
+        key: &'a str,
+        since: i64,
+    ) -> BoxFuture<'a, Result<i64, Error>> {
+        Box::pin(async move {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM auth_failures WHERE policy_key = ? AND failed_at > ?",
+            )
+            .bind(key)
+            .bind(since)
+            .fetch_one(&self.pool)
+            .await?;
+            Ok(count)
+        })
+    }
+
+    fn record_auth_failure<'a>(
+        &'a self,
+        key: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("INSERT INTO auth_failures (policy_key, failed_at) VALUES (?, ?)")
+                .bind(key)
+                .bind(now_secs)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn clear_auth_failures<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("DELETE FROM auth_failures WHERE policy_key = ?")
+                .bind(key)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn reserve_auth_attempt<'a>(
+        &'a self,
+        key: &'a str,
+        now_secs: i64,
+        limits: Limits,
+    ) -> BoxFuture<'a, Result<Decision, Error>> {
+        Box::pin(async move {
+            let since = window_start(now_secs, limits);
+            // `BEGIN IMMEDIATE` takes the write lock before reading, so the
+            // count sees every committed reservation: a concurrent burst is
+            // serialized and stops exactly at the limit.
+            let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+            let decision = reserve(&mut tx, key, now_secs, since, limits).await?;
+            tx.commit().await?;
+            Ok(decision)
+        })
+    }
+
     fn create_api_client(&self, input: NewApiClient) -> BoxFuture<'_, Result<ApiClient, Error>> {
         let client = ApiClient {
             key_id: input.key_id,
@@ -539,6 +600,48 @@ impl Store for SqliteStore {
     }
 }
 
+/// Lower bound of the sliding window, saturating on absurd inputs.
+fn window_start(now_secs: i64, limits: Limits) -> i64 {
+    let window = i64::try_from(limits.window_secs).unwrap_or(i64::MAX);
+    now_secs.saturating_sub(window)
+}
+
+/// Prune, count and (on `Allow`) reserve, inside the caller's transaction.
+async fn reserve(
+    conn: &mut sqlx::SqliteConnection,
+    key: &str,
+    now_secs: i64,
+    since: i64,
+    limits: Limits,
+) -> Result<Decision, Error> {
+    sqlx::query("DELETE FROM auth_failures WHERE policy_key = ? AND failed_at <= ?")
+        .bind(key)
+        .bind(since)
+        .execute(&mut *conn)
+        .await?;
+    let (count, last): (i64, Option<i64>) = sqlx::query_as(
+        "SELECT COUNT(*), MAX(failed_at) FROM auth_failures WHERE policy_key = ? AND failed_at > ?",
+    )
+    .bind(key)
+    .bind(since)
+    .fetch_one(&mut *conn)
+    .await?;
+    let count = u64::try_from(count).map_err(|_| Error::CorruptRow)?;
+    let last = last
+        .map(|value| u64::try_from(value).map_err(|_| Error::CorruptRow))
+        .transpose()?;
+    let now = u64::try_from(now_secs).map_err(|_| Error::CorruptRow)?;
+    let decision = bandall_policy::evaluate(limits, count, last, now);
+    if decision == Decision::Allow {
+        sqlx::query("INSERT INTO auth_failures (policy_key, failed_at) VALUES (?, ?)")
+            .bind(key)
+            .bind(now_secs)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(decision)
+}
+
 #[cfg(test)]
 mod tests {
     use super::SqliteStore;
@@ -549,5 +652,6 @@ mod tests {
         let store = SqliteStore::in_memory().await.unwrap();
         store.migrate().await.unwrap();
         tests_battery::full_cycle(&store).await.unwrap();
+        tests_battery::auth_failures(&store).await.unwrap();
     }
 }
