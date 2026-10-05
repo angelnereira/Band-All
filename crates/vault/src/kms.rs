@@ -60,7 +60,9 @@ pub trait KmsProvider: Send + Sync {
 /// File-backed KMS for development and offline deployments.
 ///
 /// The key file holds exactly 32 raw bytes and must be readable only by its
-/// owner (mode `0600` or stricter on Unix).
+/// owner (mode `0600` or stricter on Unix). The derived `Debug` prints the key
+/// id only: `SecretBox` redacts its contents.
+#[derive(Debug)]
 pub struct LocalKms {
     id: String,
     key: SecretBox<Vec<u8>>,
