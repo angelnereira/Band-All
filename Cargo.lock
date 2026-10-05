@@ -177,6 +177,7 @@ dependencies = [
  "bandall-store",
  "bandall-totp-core",
  "bandall-vault",
+ "secrecy",
  "serde",
  "serde_json",
  "subtle",

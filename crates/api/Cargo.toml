@@ -26,6 +26,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Constant-time service-key comparison.
 subtle = "2"
+# Secret hygiene for transient plaintext copies.
+secrecy = "0.10"
 # Ad-hoc error context (never surfaced to clients).
 anyhow = "1"
 # Typed errors.
