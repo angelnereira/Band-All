@@ -21,6 +21,8 @@ use utoipa::OpenApi;
         crate::token::refresh,
         crate::token::revoke,
         crate::token::jwks,
+        crate::sigs::verify_signature,
+        crate::authz::check,
     ),
     components(schemas(
         crate::health::Health,
@@ -40,6 +42,9 @@ use utoipa::OpenApi;
         crate::token::RefreshRequest,
         crate::token::RevokeRequest,
         crate::token::RevokeResponse,
+        crate::sigs::SigsVerifyRequest,
+        crate::sigs::SigsVerifyResponse,
+        crate::authz::AuthzResponse,
     )),
     tags((name = "bandall", description = "TOTP security service"))
 )]
@@ -74,6 +79,8 @@ mod tests {
             "/v1/verify",
             "/v1/token/refresh",
             "/v1/token/revoke",
+            "/v1/sigs/verify",
+            "/v1/authz/check",
             "/.well-known/jwks.json",
         ] {
             assert!(json.contains(path), "spec is missing {path}");

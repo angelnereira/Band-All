@@ -13,11 +13,13 @@ use axum::{
 };
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 
+use crate::authz;
 use crate::config::Config;
 use crate::enroll;
 use crate::error::Error;
 use crate::health;
 use crate::openapi;
+use crate::sigs;
 use crate::state::AppState;
 use crate::token;
 use crate::verify;
@@ -35,6 +37,8 @@ pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
         .route("/v1/verify", post(verify::s2s_verify))
         .route("/v1/token/refresh", post(token::refresh))
         .route("/v1/token/revoke", post(token::revoke))
+        .route("/v1/sigs/verify", post(sigs::verify_signature))
+        .route("/v1/authz/check", get(authz::check))
         .route("/.well-known/jwks.json", get(token::jwks))
         .fallback(health::not_found)
         .layer(TraceLayer::new_for_http())

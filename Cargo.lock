@@ -175,6 +175,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bandall-policy",
+ "bandall-sigs",
  "bandall-store",
  "bandall-tokens",
  "bandall-totp-core",
@@ -204,6 +205,7 @@ version = "0.1.0"
 dependencies = [
  "bandall-api",
  "clap",
+ "getrandom 0.2.17",
  "tokio",
  "tracing",
  "tracing-subscriber",

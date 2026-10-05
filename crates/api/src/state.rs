@@ -1,10 +1,11 @@
 //! Shared application state: store, vault and service-key verifier.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use subtle::ConstantTimeEq;
 
 use bandall_policy::Policy;
+use bandall_sigs::NonceCache;
 use bandall_store::Store;
 use bandall_tokens::KeyManager;
 use bandall_vault::Vault;
@@ -20,6 +21,8 @@ pub struct AppState {
     pub keys: Arc<KeyManager>,
     /// Failure tracker (rate limit, backoff, lockout).
     pub policy: Arc<Policy>,
+    /// Single-use HMAC nonces (process-local; Redis in H8 for multi-replica).
+    pub nonces: Arc<Mutex<NonceCache>>,
     /// Token issuer (`iss`).
     pub issuer: String,
     /// Token audience (`aud`).
@@ -46,6 +49,7 @@ impl AppState {
             vault,
             keys,
             policy,
+            nonces: Arc::new(Mutex::new(NonceCache::new())),
             issuer,
             audience,
             service_key: Arc::from(service_key),

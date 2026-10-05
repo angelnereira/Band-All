@@ -13,6 +13,7 @@
 )]
 
 pub mod audit;
+pub mod authz;
 pub mod config;
 pub mod enroll;
 pub mod error;
@@ -20,11 +21,13 @@ pub mod gates;
 pub mod health;
 pub mod openapi;
 pub mod server;
+pub mod sigs;
 pub mod state;
 pub mod token;
 pub mod verify;
 
 pub use bandall_store::AuditEntry;
+pub use bandall_store::NewApiClient;
 pub use config::{Config, DatabaseKind};
 pub use error::Error;
 pub use state::AppState;
