@@ -20,14 +20,44 @@ edition = "2024"
 rust-version = "1.85"
 publish = false
 
+# Integer overflow must never be silent, not even in release (AGENTS.md
+# "fail closed"): steps, counters and timestamps are all bounded domain values
+# where wrapping would be a security bug rather than a performance win.
+[profile.release]
+overflow-checks = true
+panic = "abort"
+strip = "debuginfo"
+
+[profile.test]
+overflow-checks = true
+
 # AGENTS.md "Seguridad": no unsafe code anywhere.
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
 # AGENTS.md "Codigo": no unwrap/expect/panic/indexing outside tests.
 # Tests opt out via #![cfg_attr(test, allow(...))] in each crate root.
+#
+# print_stdout/print_stderr are denied here, so the CLI crate re-enables them
+# locally (it is the only binary). Everything else applies workspace-wide.
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 indexing_slicing = "deny"
+# No lossy integer conversions (`as`) outside tests: same rationale as above.
+cast_possible_truncation = "deny"
+cast_sign_loss = "deny"
+cast_possible_wrap = "deny"
+trivial_numeric_casts = "deny"
+# No leftover debug hooks or placeholders in shipped code.
+dbg_macro = "deny"
+dbg_impl = "deny"
+todo = "deny"
+unimplemented = "deny"
+# The CLI is the only place allowed to print; libraries stay silent.
+print_stdout = "deny"
+print_stderr = "deny"
+# Rustdoc on every public item (AGENTS.md "Codigo").
+missing_docs = "warn"
+missing_debug_implementations = "warn"

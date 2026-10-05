@@ -4,13 +4,19 @@
 //! (`bandall healthcheck`); with the current slim runtime the same subcommand
 //! backs the Docker `HEALTHCHECK`.
 #![forbid(unsafe_code)]
+// This is the one binary that is supposed to talk to the operator.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 #![cfg_attr(
     test,
     allow(
         clippy::unwrap_used,
         clippy::expect_used,
         clippy::panic,
-        clippy::indexing_slicing
+        clippy::indexing_slicing,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap,
+        clippy::trivial_numeric_casts
     )
 )]
 
