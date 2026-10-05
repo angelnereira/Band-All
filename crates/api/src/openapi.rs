@@ -48,6 +48,7 @@ use utoipa::OpenApi;
     )),
     tags((name = "bandall", description = "TOTP security service"))
 )]
+#[derive(Debug)]
 pub struct ApiDoc;
 
 /// `GET /openapi.json`: the full contract as JSON.

@@ -14,7 +14,7 @@ use crate::config::TrustedProxies;
 use crate::metrics::Metrics;
 
 /// Selected failure-tracker backend (ADR-0008).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum PolicyHandle {
     /// Process-local tracker: single replica, embedded mode, tests.
     Memory(Arc<Policy>),
@@ -81,5 +81,13 @@ impl AppState {
         let expected = self.service_key.as_bytes();
         let got = candidate.as_bytes();
         expected.len() == got.len() && bool::from(expected.ct_eq(got))
+    }
+}
+
+impl std::fmt::Debug for AppState {
+    /// Opaque on purpose: the state holds the service key and vault material,
+    /// so nothing is printed here.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState").finish_non_exhaustive()
     }
 }
