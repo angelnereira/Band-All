@@ -242,7 +242,9 @@ async fn concurrent_replay_single_winner() {
     let (state, tenant) = setup().await;
     let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
     let params = TotpParams::default_params();
-    let code = totp::generate(&secret, params, now_unix() + 2 * NOW_SKEW).unwrap();
+    // Inside the reach of the verification window (drift ±2 steps, window ±1),
+    // so the winner exists and the test measures anti-replay, not reach.
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
 
     let mut handles = Vec::new();
     for _ in 0..100 {
