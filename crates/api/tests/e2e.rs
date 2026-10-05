@@ -32,7 +32,9 @@ use bandall_vault::{LocalKms, Vault};
 const SERVICE_KEY: &str = "e2e-service-key-0123456789abcdef";
 const ISSUER: &str = "https://bandall.example";
 const AUDIENCE: &str = "my-app";
-const NOW_SKEW: u64 = 60;
+/// One TOTP step of clock skew: inside the ±1 step verification window that
+/// T3 reduced the search to.
+const NOW_SKEW: u64 = 30;
 
 async fn setup() -> (AppState, String) {
     let sqlite = SqliteStore::in_memory().await.unwrap();
@@ -766,4 +768,61 @@ async fn neighbor_flood_does_not_block_valid_factor() {
         accepted.is_ok(),
         "valid factor blocked by neighbor flood: {accepted:?}"
     );
+}
+
+#[tokio::test]
+async fn drift_is_learned_and_wider_clocks_are_denied() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+
+    // A clock one step ahead is inside the window and teaches the drift.
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    assert!(
+        mfa_verify(
+            State(state.clone()),
+            HeaderMap::new(),
+            PeerAddr(None),
+            Json(MfaVerifyRequest {
+                tenant_id: tenant.clone(),
+                subject_id: subject_id.clone(),
+                factor_id: factor_id.clone(),
+                code,
+            }),
+        )
+        .await
+        .is_ok()
+    );
+    let drifted = state
+        .store
+        .get_factor(&tenant, &subject_id, &factor_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(drifted.drift(), 1, "drift not learned from the match");
+
+    // A clock three steps away (±90 s) is outside ±1 of the stored drift.
+    let far = totp::generate(&secret, params, now_unix() + 3 * NOW_SKEW).unwrap();
+    let denied = mfa_verify(
+        State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant.clone(),
+            subject_id: subject_id.clone(),
+            factor_id: factor_id.clone(),
+            code: far,
+        }),
+    )
+    .await;
+    assert!(denied.is_err(), "±90 s must not be accepted any more");
+
+    // And the learned drift did not move to accommodate the failed attempt.
+    let after = state
+        .store
+        .get_factor(&tenant, &subject_id, &factor_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.drift(), 1);
 }
