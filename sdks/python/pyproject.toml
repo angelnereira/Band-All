@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bandall-sdk"
+version = "0.1.0"
+description = "BandAll thin SDK: offline JWT verification and HMAC request signatures"
+requires-python = ">=3.10"
+dependencies = ["cryptography>=41"]
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+test = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bandall_sdk*"]

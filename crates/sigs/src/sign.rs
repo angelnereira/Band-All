@@ -211,4 +211,46 @@ mod tests {
     fn nonces_are_fresh() {
         assert_ne!(fresh_nonce().unwrap(), fresh_nonce().unwrap());
     }
+
+    fn hex_decode(hex: &str) -> Vec<u8> {
+        let bytes = hex.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len() / 2);
+        let mut pair = bytes.chunks_exact(2);
+        for chunk in &mut pair {
+            let hi = hex_val(chunk[0]);
+            let lo = hex_val(chunk[1]);
+            out.push(hi << 4 | lo);
+        }
+        return out;
+
+        fn hex_val(byte: u8) -> u8 {
+            match byte {
+                b'0'..=b'9' => byte - b'0',
+                b'a'..=b'f' => byte - b'a' + 10,
+                b'A'..=b'F' => byte - b'A' + 10,
+                _ => 0,
+            }
+        }
+    }
+
+    /// Cross-implementation check: vectors generated with Python's hashlib
+    /// must match this crate's canonical string and signature byte for byte.
+    #[test]
+    fn conformance_vectors() {
+        let raw = include_str!("../../../sdks/conformance/vectors.json");
+        let vectors: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let hmac = &vectors["hmac"];
+        let get = |key: &str| hmac[key].as_str().unwrap().to_string();
+        let key = hex_decode(hmac["key_hex"].as_str().unwrap());
+        let req = SignedRequest {
+            method: get("method"),
+            path: get("path"),
+            query: get("query"),
+            body: get("body").into_bytes(),
+            timestamp: hmac["timestamp"].as_u64().unwrap(),
+            nonce: get("nonce"),
+        };
+        assert_eq!(crate::canonical(&req).unwrap(), get("canonical"));
+        assert_eq!(crate::sign(&key, &req).unwrap(), get("signature"));
+    }
 }

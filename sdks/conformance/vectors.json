@@ -1,0 +1,34 @@
+{
+  "now_secs": 1700000000,
+  "jwt": {
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "kid": "WCQbWur0rpEObrwh",
+          "x": "fsABdA4GZjADNIuA9afga1v32Esv0dnjOMV2-xwqSF4",
+          "use": "sig"
+        }
+      ]
+    },
+    "issuer": "https://bandall.example",
+    "audience": "my-app",
+    "valid": "eyJhbGciOiJFZERTQSIsImtpZCI6IldDUWJXdXIwcnBFT2Jyd2giLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2JhbmRhbGwuZXhhbXBsZSIsImF1ZCI6Im15LWFwcCIsInN1YiI6ImFsaWNlIiwidGVuYW50IjoiYWNtZSIsInNpZCI6InNlc3MtMSIsImFtciI6WyJvdHAiXSwiYWFsIjoxLCJqdGkiOiJqdGktMSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwNjAwfQ.2daRRqIXQn62dqc5gi4Zch6_hHWdHwyIS1DEQQ1fGx-s67HBFaLTj-azh-EPtlJKRdp4gxfwnkZHktV1F097Cg",
+    "tampered": "eyJhbGciOiJFZERTQSIsImtpZCI6IldDUWJXdXIwcnBFT2Jyd2giLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2JhbmRhbGwuZXhhbXBsZSIsImF1ZCI6Im15LWFwcCIsInN1YiI6ImFsaWNlIiwidGVuYW50IjoiYWNtZSIsInNpZCI6InNlc3MtMSIsImFtciI6WyJvdHAiXSwiYWFsIjoxLCJqdGkiOiJqdGktMSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwNjAwfA.2daRRqIXQn62dqc5gi4Zch6_hHWdHwyIS1DEQQ1fGx-s67HBFaLTj-azh-EPtlJKRdp4gxfwnkZHktV1F097Cg",
+    "wrong_aud": "eyJhbGciOiJFZERTQSIsImtpZCI6IldDUWJXdXIwcnBFT2Jyd2giLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2JhbmRhbGwuZXhhbXBsZSIsImF1ZCI6Im90aGVyLWFwcCIsInN1YiI6ImFsaWNlIiwidGVuYW50IjoiYWNtZSIsInNpZCI6InNlc3MtMSIsImFtciI6WyJvdHAiXSwiYWFsIjoxLCJqdGkiOiJqdGktMSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwNjAwfQ.tPp_2aKC_GuOPHz7UPiEXZXnkEy05saD_QVHSsMdnJbQLymtThsIOvDs6BBC6Dhh8bKbXXVj_VGAT6LiGTcHAA",
+    "expired": "eyJhbGciOiJFZERTQSIsImtpZCI6IldDUWJXdXIwcnBFT2Jyd2giLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2JhbmRhbGwuZXhhbXBsZSIsImF1ZCI6Im15LWFwcCIsInN1YiI6ImFsaWNlIiwidGVuYW50IjoiYWNtZSIsInNpZCI6InNlc3MtMSIsImFtciI6WyJvdHAiXSwiYWFsIjoxLCJqdGkiOiJqdGktMSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNjk5OTk5MzAwfQ.ERwWKEk3kFUM4J7zYe45mjYozpQIdeS-uHL419bjx-BtEYpXkWUKQ1IDmqo80eQ7UpuBfdkdDmVyFM8WqQpeCw",
+    "none_alg": "eyJhbGciOiJub25lIiwia2lkIjoiV0NRYld1cjBycEVPYnJ3aCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2JhbmRhbGwuZXhhbXBsZSIsImF1ZCI6Im15LWFwcCIsInN1YiI6ImFsaWNlIiwidGVuYW50IjoiYWNtZSIsInNpZCI6InNlc3MtMSIsImFtciI6WyJvdHAiXSwiYWFsIjoxLCJqdGkiOiJqdGktMSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwNjAwfQ."
+  },
+  "hmac": {
+    "key_hex": "dbb869db431956833bed5827ffc62c5b681d7f735ea233fa773316a6609aeec2",
+    "method": "POST",
+    "path": "/v1/verify",
+    "query": "",
+    "body": "{\"code\":\"123456\"}",
+    "timestamp": 1700000000,
+    "nonce": "nonce-abc-123",
+    "canonical": "POST\n/v1/verify\n\nce1342efa3c150420e9e14cbec79d3ef66b8bd1a8f74ff921ea3b964bb1a89ba\n1700000000\nnonce-abc-123",
+    "signature": "v1=bc7394ac5d1a61544b2dcc85798d900ba15e8eeb3ba94d7313376fc32b979b01"
+  }
+}

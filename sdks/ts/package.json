@@ -1,0 +1,14 @@
+{
+  "name": "@bandall/sdk",
+  "version": "0.1.0",
+  "description": "BandAll thin SDK: offline JWT verification and HMAC request signatures",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

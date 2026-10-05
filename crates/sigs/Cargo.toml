@@ -18,3 +18,7 @@ subtle = "2"
 getrandom = "0.2"
 # Typed errors.
 thiserror = "2"
+
+[dev-dependencies]
+# Conformance-vector parsing (tests only).
+serde_json = "1"
