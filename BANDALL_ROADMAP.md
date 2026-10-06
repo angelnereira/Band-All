@@ -163,3 +163,6 @@
 4. **Multi-tenant desde el día 1** o por fases.
 5. **App móvil:** nativa por plataforma o Flutter.
 6. **Base de datos por defecto:** Postgres (servicio) y SQLite (embebido).
+7. **Resincronización de deriva** (ADR-0009, T3): reenrolado, dos códigos
+   consecutivos, ventana amplia con presupuesto o resync remota S2S.
+   Recomendación: dos códigos consecutivos, sin sesión en el primero.

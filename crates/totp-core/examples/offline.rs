@@ -7,6 +7,10 @@
 //! Mirrors what `authenticator-core` (H7) does on device: provision from an
 //! `otpauth://` URI, show the current code with its remaining seconds, and
 //! verify with an explicitly passed clock.
+//!
+//! This example is a CLI, so printing is expected here (like the `bandall`
+//! binary) even though libraries must stay silent.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use std::process::ExitCode;
 

@@ -15,4 +15,4 @@
 
 pub mod policy;
 
-pub use policy::{Decision, Limits, Policy};
+pub use policy::{Decision, Limits, Policy, PolicyConfig, Scope, evaluate};

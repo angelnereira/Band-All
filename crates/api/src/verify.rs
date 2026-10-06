@@ -14,10 +14,11 @@ use crate::error::Error;
 use crate::gates;
 use crate::state::AppState;
 
-/// Tolerance window: ±1 step.
-const WINDOW: u32 = 1;
-/// Drift search radius around the stored drift (total span stays tiny).
-const DRIFT_RADIUS: i64 = 2;
+/// Steps of slack on each side of the stored drift: the verification window is
+/// exactly three steps wide (remediation T3). Before this, `WINDOW=1` plus
+/// `DRIFT_RADIUS=2` probed up to seven steps (±90 s) and learned the drift from
+/// a single hit.
+const SLACK_STEPS: u64 = 1;
 /// Hard drift clamp.
 const DRIFT_MAX: i64 = 5;
 
@@ -61,14 +62,19 @@ pub struct MfaVerifyResponse {
 )]
 pub async fn mfa_verify(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: gates::PeerAddr,
     Json(body): Json<MfaVerifyRequest>,
 ) -> Result<Json<MfaVerifyResponse>, Error> {
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         gates::tenant_key(&body.tenant_id),
     ];
-    gates::check(&state, &keys, now)?;
+    if let Some(ip) = gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(gates::ip_key(ip));
+    }
+    gates::acquire(&state, &keys, now).await?;
     let outcome = verify_code(
         &state,
         &body.tenant_id,
@@ -77,7 +83,7 @@ pub async fn mfa_verify(
         &body.code,
     )
     .await;
-    gates::record(&state, &keys, now, outcome.is_ok());
+    gates::record(&state, &keys, outcome.is_ok()).await?;
     state.metrics.mfa(outcome.is_ok());
     let event = if outcome.is_ok() {
         crate::audit::event::MFA_VERIFIED
@@ -134,15 +140,19 @@ pub struct S2sVerifyResponse {
 pub async fn s2s_verify(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: gates::PeerAddr,
     Json(body): Json<S2sVerifyRequest>,
 ) -> Result<Json<S2sVerifyResponse>, Error> {
     require_service_key(&state, &headers)?;
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         gates::tenant_key(&body.tenant_id),
     ];
-    gates::check(&state, &keys, now)?;
+    if let Some(ip) = gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(gates::ip_key(ip));
+    }
+    gates::acquire(&state, &keys, now).await?;
     let outcome = verify_code(
         &state,
         &body.tenant_id,
@@ -151,7 +161,7 @@ pub async fn s2s_verify(
         &body.code,
     )
     .await;
-    gates::record(&state, &keys, now, outcome.is_ok());
+    gates::record(&state, &keys, outcome.is_ok()).await?;
     let event = if outcome.is_ok() {
         crate::audit::event::S2S_VERIFIED
     } else {
@@ -200,16 +210,21 @@ pub struct RecoverResponse {
 )]
 pub async fn recover(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: gates::PeerAddr,
     Json(body): Json<RecoverRequest>,
 ) -> Result<Json<RecoverResponse>, Error> {
     let now = now_unix().map_err(|_| Error::denied())?;
-    let keys = [
+    let mut keys = vec![
         gates::factor_key(&body.tenant_id, &body.subject_id, &body.factor_id),
         gates::tenant_key(&body.tenant_id),
     ];
-    gates::check(&state, &keys, now)?;
+    if let Some(ip) = gates::client_ip(&state.trusted_proxies, peer.0, &headers) {
+        keys.push(gates::ip_key(ip));
+    }
+    gates::acquire(&state, &keys, now).await?;
     let outcome = recover_inner(&state, &body).await;
-    gates::record(&state, &keys, now, outcome.is_ok());
+    gates::record(&state, &keys, outcome.is_ok()).await?;
     let event = if outcome.is_ok() {
         crate::audit::event::RECOVERY_USED
     } else {
@@ -299,9 +314,12 @@ async fn verify_code(
         .map(Step::new);
     let now = now_unix().map_err(|_| Error::denied())?;
 
-    for drift in drift_candidates(factor.drift()) {
-        let at = shifted_now(now, drift, params.period().as_u64()).map_err(|_| Error::denied())?;
-        match bandall_totp_core::totp::verify(&secret, params, code, at, WINDOW, last) {
+    let period = params.period().as_u64();
+    // Only the three steps around the stored drift are probed, and the drift
+    // is re-learned from the offset actually observed on success.
+    for candidate in candidate_steps(now, factor.drift(), period).ok_or_else(Error::denied)? {
+        let at = candidate.checked_mul(period).ok_or_else(Error::denied)?;
+        match bandall_totp_core::totp::verify(&secret, params, code, at, 0, last) {
             Ok(step) => {
                 if !state
                     .store
@@ -311,8 +329,9 @@ async fn verify_code(
                 {
                     return Err(Error::denied());
                 }
-                if drift != factor.drift() {
-                    state.store.record_drift(&factor.id, drift).await?;
+                let observed = observed_drift(step.get(), now, period).ok_or_else(Error::denied)?;
+                if observed != factor.drift() {
+                    state.store.record_drift(&factor.id, observed).await?;
                 }
                 return Ok(step);
             }
@@ -323,26 +342,83 @@ async fn verify_code(
     Err(Error::denied())
 }
 
-/// Drift candidates: stored drift first, then neighbours, clamped to ±5.
-fn drift_candidates(stored: i64) -> Vec<i64> {
-    let mut out = Vec::with_capacity(5);
-    out.push(stored);
-    for delta in 1..=DRIFT_RADIUS {
-        for candidate in [stored - delta, stored + delta] {
-            if (-DRIFT_MAX..=DRIFT_MAX).contains(&candidate) && !out.contains(&candidate) {
-                out.push(candidate);
-            }
-        }
-    }
-    out
+/// The only steps a code may match: the stored drift plus one step of slack on
+/// each side, exactly three candidates.
+///
+/// Pure and fail-closed: `None` when the arithmetic would leave the range of a
+/// step counter (zero period, near the epoch, overflow), so a corrupted row
+/// denies instead of probing wrapped values.
+fn candidate_steps(now: u64, drift: i64, period: u64) -> Option<[u64; 3]> {
+    let period = i64::try_from(period).ok().filter(|p| *p > 0)?;
+    let now_step = i64::try_from(now).ok()? / period;
+    let base = now_step.checked_add(drift)?;
+    let slack = i64::try_from(SLACK_STEPS).ok()?;
+    let first = base.checked_sub(slack)?;
+    let last = base.checked_add(slack)?;
+    Some([
+        u64::try_from(first).ok()?,
+        u64::try_from(base).ok()?,
+        u64::try_from(last).ok()?,
+    ])
 }
 
-/// `now` shifted by `drift` steps of `period` seconds. `None` on underflow.
-fn shifted_now(now: u64, drift: i64, period: u64) -> Result<u64, Error> {
-    let now_i64 = i64::try_from(now).map_err(|_| Error::denied())?;
-    let shift = drift
-        .checked_mul(i64::try_from(period).map_err(|_| Error::denied())?)
-        .ok_or_else(Error::denied)?;
-    let at = now_i64.checked_add(shift).ok_or_else(Error::denied)?;
-    u64::try_from(at).map_err(|_| Error::denied())
+/// Offset of the matched step relative to `now`, in steps and clamped to
+/// ±`DRIFT_MAX` so a tampered row cannot push the window far away.
+fn observed_drift(step: u64, now: u64, period: u64) -> Option<i64> {
+    let period = i64::try_from(period).ok().filter(|p| *p > 0)?;
+    let now_step = i64::try_from(now).ok()? / period;
+    let step = i64::try_from(step).ok()?;
+    Some(step.checked_sub(now_step)?.clamp(-DRIFT_MAX, DRIFT_MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DRIFT_MAX, candidate_steps, observed_drift};
+
+    const PERIOD: u64 = 30;
+    const NOW: u64 = 1_700_000_000;
+
+    #[test]
+    fn exactly_three_distinct_candidates() {
+        let base = NOW / PERIOD;
+        let steps = candidate_steps(NOW, 0, PERIOD).unwrap();
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps, [base - 1, base, base + 1]);
+        assert!(steps[0] < steps[1] && steps[1] < steps[2]);
+    }
+
+    #[test]
+    fn candidates_follow_the_stored_drift() {
+        let base = NOW / PERIOD;
+        // Stored drift 2 ⇒ candidates are steps +1, +2 and +3 only.
+        assert_eq!(
+            candidate_steps(NOW, 2, PERIOD).unwrap(),
+            [base + 1, base + 2, base + 3]
+        );
+        // Stored drift 0 never reaches a step three away: that was the ±90 s
+        // span T3 removed.
+        let zero = candidate_steps(NOW, 0, PERIOD).unwrap();
+        assert!(!zero.contains(&(base + 3)));
+        assert!(zero.contains(&base));
+    }
+
+    #[test]
+    fn fails_closed_on_impossible_inputs() {
+        // Zero period, near the epoch and a drift that would go negative.
+        assert!(candidate_steps(NOW, 0, 0).is_none());
+        assert!(candidate_steps(0, 0, PERIOD).is_none());
+        assert!(candidate_steps(1, 0, PERIOD).is_none());
+        assert!(candidate_steps(NOW, i64::MAX, PERIOD).is_none());
+    }
+
+    #[test]
+    fn observed_drift_is_clamped_to_the_hard_limit() {
+        let base = NOW / PERIOD;
+        assert_eq!(observed_drift(base + 1, NOW, PERIOD), Some(1));
+        assert_eq!(observed_drift(base, NOW, PERIOD), Some(0));
+        assert_eq!(observed_drift(base - 1, NOW, PERIOD), Some(-1));
+        assert_eq!(observed_drift(base + 99, NOW, PERIOD), Some(DRIFT_MAX));
+        assert_eq!(observed_drift(base - 99, NOW, PERIOD), Some(-DRIFT_MAX));
+        assert!(observed_drift(base, NOW, 0).is_none());
+    }
 }

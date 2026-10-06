@@ -99,10 +99,10 @@ pub async fn refresh(
     let now = crate::enroll::now_unix().map_err(|_| Error::denied())?;
     // Refresh tokens carry 256 bits of entropy: abuse accounting stays light
     // (tenant key only) since guessing is infeasible.
-    let keys = [crate::gates::tenant_key("refresh")];
-    crate::gates::check(&state, &keys, now)?;
+    let keys = vec![crate::gates::tenant_key("refresh")];
+    crate::gates::acquire(&state, &keys, now).await?;
     let outcome = refresh_inner(&state, &body).await;
-    crate::gates::record(&state, &keys, now, outcome.is_ok());
+    crate::gates::record(&state, &keys, outcome.is_ok()).await?;
     outcome
 }
 

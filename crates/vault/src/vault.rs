@@ -90,6 +90,14 @@ pub struct Vault {
     kms: Arc<dyn KmsProvider>,
 }
 
+impl std::fmt::Debug for Vault {
+    /// Opaque on purpose: the provider holds key material, so nothing is
+    /// printed here.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Vault").finish_non_exhaustive()
+    }
+}
+
 impl Vault {
     /// Builds a vault around a shared KMS provider.
     #[must_use]

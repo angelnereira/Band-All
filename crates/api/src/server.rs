@@ -3,6 +3,7 @@
 //! Middleware order (outside in): request tracing, body limit, timeout.
 //! Graceful shutdown drains in-flight requests on SIGTERM/SIGINT.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,14 +15,14 @@ use axum::{
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer, trace::TraceLayer};
 
 use crate::authz;
-use crate::config::Config;
+use crate::config::{Config, PolicyBackendKind, TrustedProxies};
 use crate::enroll;
 use crate::error::Error;
 use crate::health;
 use crate::metrics;
 use crate::openapi;
 use crate::sigs;
-use crate::state::AppState;
+use crate::state::{AppState, PolicyHandle};
 use crate::token;
 use crate::verify;
 
@@ -58,10 +59,13 @@ pub async fn serve(config: &Config, state: AppState) -> Result<(), Error> {
         .await
         .map_err(|e| Error::Config(format!("cannot bind {}: {e}", config.listen)))?;
     tracing::info!(listen = %config.listen, "bandall listening");
-    axum::serve(listener, router(state, config.body_limit_bytes))
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(|e| Error::Config(format!("server error: {e}")))?;
+    axum::serve(
+        listener,
+        router(state, config.body_limit_bytes).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .map_err(|e| Error::Config(format!("server error: {e}")))?;
     Ok(())
 }
 
@@ -85,7 +89,7 @@ async fn shutdown_signal() {
 
 /// Builds shared state from configuration: store, vault and service key.
 pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error> {
-    use bandall_policy::{Limits, Policy};
+    use bandall_policy::{Limits, Policy, PolicyConfig};
     use bandall_store::{PgStore, SqliteStore};
     use bandall_tokens::KeyManager;
     use bandall_vault::{LocalKms, Vault};
@@ -102,11 +106,24 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
         KeyManager::load_or_generate(std::path::Path::new(&config.keys_dir))
             .map_err(|_| Error::Config("cannot load signing keys".to_string()))?,
     );
-    let policy = Arc::new(Policy::new(Limits {
-        max_attempts: config.policy_max_attempts,
-        lockout_after: config.policy_lockout_after,
-        ..Limits::default()
-    }));
+    let policy_config = PolicyConfig {
+        factor: Limits {
+            max_attempts: config.policy_max_attempts,
+            lockout_after: config.policy_lockout_after,
+            ..Limits::default()
+        },
+        tenant: Limits::ingress(config.policy_tenant_max_attempts),
+        ip: Limits::ingress(config.policy_ip_max_attempts),
+        ..PolicyConfig::default()
+    };
+    let policy = match config.policy_backend {
+        PolicyBackendKind::Memory => PolicyHandle::Memory(Arc::new(Policy::new(policy_config))),
+        PolicyBackendKind::Database => PolicyHandle::Database(policy_config),
+    };
+    let trusted_proxies = Arc::new(
+        TrustedProxies::parse(&config.trusted_proxies)
+            .map_err(|_| Error::Config("invalid trusted_proxies".to_string()))?,
+    );
     let service_key = config.service_key.clone();
     let issuer = config.token_issuer.clone();
     let audience = config.token_audience.clone();
@@ -120,6 +137,7 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
                     vault,
                     keys,
                     policy,
+                    trusted_proxies,
                     issuer,
                     audience,
                     service_key,
@@ -136,6 +154,7 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
                     vault,
                     keys,
                     policy,
+                    trusted_proxies,
                     issuer,
                     audience,
                     service_key,

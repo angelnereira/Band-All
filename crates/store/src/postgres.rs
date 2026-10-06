@@ -4,6 +4,8 @@ use sqlx::PgPool;
 use sqlx::migrate::MigrateDatabase;
 use uuid::Uuid;
 
+use bandall_policy::{Decision, Limits};
+
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
 use crate::types::{
@@ -14,6 +16,7 @@ use crate::types::{
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
 
 /// Postgres-backed store.
+#[derive(Debug)]
 pub struct PgStore {
     pool: PgPool,
 }
@@ -489,6 +492,94 @@ impl Store for PgStore {
         })
     }
 
+    fn count_auth_failures<'a>(
+        &'a self,
+        key: &'a str,
+        since: i64,
+    ) -> BoxFuture<'a, Result<i64, Error>> {
+        Box::pin(async move {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM auth_failures WHERE policy_key = $1 AND failed_at > $2",
+            )
+            .bind(key)
+            .bind(since)
+            .fetch_one(&self.pool)
+            .await?;
+            Ok(count)
+        })
+    }
+
+    fn record_auth_failure<'a>(
+        &'a self,
+        key: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("INSERT INTO auth_failures (policy_key, failed_at) VALUES ($1, $2)")
+                .bind(key)
+                .bind(now_secs)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn clear_auth_failures<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query("DELETE FROM auth_failures WHERE policy_key = $1")
+                .bind(key)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn reserve_auth_attempt<'a>(
+        &'a self,
+        key: &'a str,
+        now_secs: i64,
+        limits: Limits,
+    ) -> BoxFuture<'a, Result<Decision, Error>> {
+        Box::pin(async move {
+            let since = window_start(now_secs, limits);
+            let mut tx = self.pool.begin().await?;
+            // Per-key advisory lock: the count inside this transaction sees
+            // every earlier reservation, so concurrent callers stop exactly
+            // at the limit (the lock is released on commit/rollback).
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0::bigint))")
+                .bind(key)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM auth_failures WHERE policy_key = $1 AND failed_at <= $2")
+                .bind(key)
+                .bind(since)
+                .execute(&mut *tx)
+                .await?;
+            let (count, last): (i64, Option<i64>) = sqlx::query_as(
+                "SELECT COUNT(*), MAX(failed_at) FROM auth_failures WHERE policy_key = $1 AND failed_at > $2",
+            )
+            .bind(key)
+            .bind(since)
+            .fetch_one(&mut *tx)
+            .await?;
+            let count = u64::try_from(count).map_err(|_| Error::CorruptRow)?;
+            let last = last
+                .map(|value| u64::try_from(value).map_err(|_| Error::CorruptRow))
+                .transpose()?;
+            let now = u64::try_from(now_secs).map_err(|_| Error::CorruptRow)?;
+            let decision = bandall_policy::evaluate(limits, count, last, now);
+            if decision == Decision::Allow {
+                sqlx::query("INSERT INTO auth_failures (policy_key, failed_at) VALUES ($1, $2)")
+                    .bind(key)
+                    .bind(now_secs)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            tx.commit().await?;
+            Ok(decision)
+        })
+    }
+
     fn create_api_client(&self, input: NewApiClient) -> BoxFuture<'_, Result<ApiClient, Error>> {
         let client = ApiClient {
             key_id: input.key_id,
@@ -556,19 +647,26 @@ impl Store for PgStore {
     }
 }
 
+/// Lower bound of the sliding window, saturating on absurd inputs.
+fn window_start(now_secs: i64, limits: Limits) -> i64 {
+    let window = i64::try_from(limits.window_secs).unwrap_or(i64::MAX);
+    now_secs.saturating_sub(window)
+}
+
 #[cfg(test)]
 mod tests {
     use super::PgStore;
+    use crate::error::Error;
     use crate::tests_battery;
 
-    #[test]
-    fn rejects_clear_text_remote() {
+    #[tokio::test]
+    async fn rejects_clear_text_remote() {
         // Remote host without TLS: must be refused before any I/O.
-        let result = PgStore::connect("postgres://bandall:pw@db.internal:5432/bandall");
+        let result = PgStore::connect("postgres://bandall:pw@db.internal:5432/bandall").await;
         assert!(matches!(result, Err(Error::InsecureConnection)));
         // Unparseable URL: also refused (fail closed).
         assert!(matches!(
-            PgStore::connect("not-a-url"),
+            PgStore::connect("not-a-url").await,
             Err(Error::InsecureConnection)
         ));
     }
@@ -578,10 +676,9 @@ mod tests {
         // These return before any connection attempt: the TLS/loopback gate
         // passes and the failure (if any) comes from name resolution, not the
         // security check.
-        let with_tls = PgStore::connect(
-            "postgres://bandall:pw@db.internal:5432/bandall?sslmode=require",
-        )
-        .await;
+        let with_tls =
+            PgStore::connect("postgres://bandall:pw@db.internal:5432/bandall?sslmode=require")
+                .await;
         assert!(!matches!(with_tls, Err(Error::InsecureConnection)));
         let loopback = PgStore::connect("postgres://bandall:pw@127.0.0.1:1/bandall").await;
         assert!(!matches!(loopback, Err(Error::InsecureConnection)));
@@ -597,5 +694,6 @@ mod tests {
         let store = PgStore::connect(&url).await.unwrap();
         store.migrate().await.unwrap();
         tests_battery::full_cycle(&store).await.unwrap();
+        tests_battery::auth_failures(&store).await.unwrap();
     }
 }

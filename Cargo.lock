@@ -252,9 +252,11 @@ dependencies = [
 name = "bandall-store"
 version = "0.1.0"
 dependencies = [
+ "bandall-policy",
  "sqlx",
  "thiserror",
  "tokio",
+ "url",
  "uuid",
 ]
 
