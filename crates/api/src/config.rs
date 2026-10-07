@@ -377,7 +377,7 @@ impl Config {
              kms_key_file = \"/run/secrets/bandall-kek\"\n\
              kek_id = \"kek-1\"\n\
              audit_key_file = \"/run/secrets/bandall-audit-key\"\n\
-             service_key = \"change-me-to-at-least-32-chars\"\n\
+             service_key = \"demo-service-key-0123456789abcdef\"\n\
              token_issuer = \"bandall\"\n\
              token_audience = \"bandall\"\n\
              keys_dir = \"keys\"\n\

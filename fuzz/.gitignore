@@ -1,0 +1,13 @@
+# Build artifacts. The fuzz crate is its own workspace (nightly + sanitizer),
+# so its target directory is separate from the root one.
+target/
+
+# Discovered inputs. The curated seeds live in `corpus/`; anything the fuzzer
+# finds is disposable, and `artifacts/` is where crashes land (those DO get
+# committed when they become regression tests).
+corpus/*/
+!corpus/*/.gitkeep
+artifacts/
+
+# libFuzzer writes coverage data next to the target unless told otherwise.
+*.profraw

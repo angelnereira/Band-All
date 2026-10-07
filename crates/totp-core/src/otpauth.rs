@@ -92,10 +92,14 @@ impl Otpauth {
         if label.is_empty() || query.is_empty() {
             return Err(Error::InvalidUri);
         }
-        let label = pct_decode(label)?;
+        // Split on the first *literal* colon, then percent-decode each side.
+        // Decoding first would let an issuer that contains a colon (encoded as
+        // `%3A`) consume the separator: `%3A:a` decodes to `::a`, whose first
+        // colon yields an empty issuer and the account `:a`. Splitting first
+        // keeps `ACME%3ACorp:alice` as ("ACME:Corp", "alice").
         let (label_issuer, account) = match label.split_once(':') {
-            Some((issuer, account)) => (issuer.to_string(), account.to_string()),
-            None => (String::new(), label),
+            Some((issuer, account)) => (pct_decode(issuer)?, pct_decode(account)?),
+            None => (String::new(), pct_decode(label)?),
         };
         if account.is_empty() {
             return Err(Error::InvalidUri);
@@ -157,6 +161,13 @@ fn pct_decode(s: &str) -> Result<String, Error> {
 }
 
 /// Percent-encodes everything outside the RFC 3986 unreserved set.
+///
+/// Every escape is `%XX`. Omitting the `%` (which this function did until
+/// 2026-10-06) does not merely produce a non-conforming URI: the decoder sees
+/// plain hex digits, so `alice+bob@example.com` round-trips as
+/// `alice2Bbob40example.com`. That corruption lands in the QR code, and the
+/// user's authenticator then shows an account label that is not the one they
+/// enrolled — with `+` and `@` being common in email addresses.
 fn pct_encode(s: &str) -> String {
     const UNRESERVED: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
     let mut out = String::with_capacity(s.len());
@@ -164,6 +175,7 @@ fn pct_encode(s: &str) -> String {
         if UNRESERVED.contains(&b) {
             out.push(char::from(b));
         } else {
+            out.push('%');
             out.push_str(&format!("{b:02X}"));
         }
     }
@@ -212,7 +224,90 @@ mod tests {
         )
         .unwrap();
         let back = Otpauth::parse(&entry.to_uri()).unwrap();
+        // Compare the *fields*, not just the URI: comparing URI to URI is
+        // tautological and let a broken percent-encoder pass for months (see
+        // `percent_encoding_survives_special_characters`).
+        assert_eq!(back.issuer(), entry.issuer());
+        assert_eq!(back.account(), entry.account());
+        assert_eq!(back.secret_base32(), entry.secret_base32());
+        assert_eq!(back.params().algorithm(), entry.params().algorithm());
+        assert_eq!(back.params().digits(), entry.params().digits());
+        assert_eq!(back.params().period(), entry.params().period());
         assert_eq!(back.to_uri(), entry.to_uri());
+    }
+
+    #[test]
+    fn percent_encoding_survives_special_characters() {
+        // Regression: `pct_encode` emitted `XX` without the `%`, so these
+        // labels arrived at the authenticator app corrupted (space -> "20",
+        // `+` -> "2B", `@` -> "40"). Both characters are common in emails.
+        let params = TotpParams::default_params();
+        let secret = Secret::from_base32("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
+        let entry = Otpauth::new(
+            params,
+            secret,
+            "Band All".to_string(),
+            "alice+bob@example.com".to_string(),
+        )
+        .unwrap();
+
+        let uri = entry.to_uri();
+        assert!(uri.contains("Band%20All"), "space must be %20, got {uri}");
+        assert!(
+            uri.contains("alice%2Bbob%40example.com"),
+            "`+` and `@` must be escaped, got {uri}"
+        );
+
+        let back = Otpauth::parse(&uri).unwrap();
+        assert_eq!(back.issuer(), "Band All");
+        assert_eq!(back.account(), "alice+bob@example.com");
+    }
+
+    #[test]
+    fn percent_encoded_utf8_survives() {
+        // Non-ASCII labels must be percent-encoded byte by byte and decoded
+        // back to the same characters.
+        let params = TotpParams::default_params();
+        let secret = Secret::from_base32("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
+        let entry = Otpauth::new(
+            params,
+            secret,
+            "Añejo".to_string(),
+            "josé@example.com".to_string(),
+        )
+        .unwrap();
+        let back = Otpauth::parse(&entry.to_uri()).unwrap();
+        assert_eq!(back.issuer(), "Añejo");
+        assert_eq!(back.account(), "josé@example.com");
+    }
+
+    #[test]
+    fn issuer_containing_a_colon_does_not_eat_the_separator() {
+        // Regression: the parser percent-decoded the whole label before
+        // splitting on ':', so `%3A:a` became `::a` and the account came back
+        // as `:a` instead of `a`. Real issuers like "ACME:Corp" hit this.
+        let params = TotpParams::default_params();
+        let secret = Secret::from_base32("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
+        let entry =
+            Otpauth::new(params, secret, "ACME:Corp".to_string(), "alice".to_string()).unwrap();
+        let uri = entry.to_uri();
+        assert!(uri.contains("ACME%3ACorp:alice"), "got {uri}");
+
+        let back = Otpauth::parse(&uri).unwrap();
+        assert_eq!(back.issuer(), "ACME:Corp");
+        assert_eq!(back.account(), "alice");
+    }
+
+    #[test]
+    fn account_containing_a_colon_survives() {
+        // The separator is the first colon; a colon in the account is data and
+        // must come back intact.
+        let params = TotpParams::default_params();
+        let secret = Secret::from_base32("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ").unwrap();
+        let entry = Otpauth::new(params, secret, "ACME".to_string(), "a:b".to_string()).unwrap();
+        let back = Otpauth::parse(&entry.to_uri()).unwrap();
+        assert_eq!(back.issuer(), "ACME");
+        assert_eq!(back.account(), "a:b");
     }
 
     #[test]

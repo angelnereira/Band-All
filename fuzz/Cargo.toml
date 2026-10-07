@@ -1,0 +1,57 @@
+[package]
+name = "bandall-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace on purpose: the fuzz targets need a nightly toolchain
+# (`-Zsanitizer`) while the rest of the project builds on pinned stable, and the
+# fuzz crate must not join `cargo check --workspace` or clippy.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bandall-totp-core = { path = "../crates/totp-core" }
+bandall-api = { path = "../crates/api" }
+bandall-policy = { path = "../crates/policy" }
+bandall-store = { path = "../crates/store" }
+bandall-tokens = { path = "../crates/tokens" }
+bandall-vault = { path = "../crates/vault" }
+# HTTP-surface fuzzing (H5, roadmap item 5) drives the real axum router.
+axum = "0.8"
+tokio = { version = "1", features = ["rt", "macros", "time", "net"] }
+tower = "0.5"
+
+# Parser surfaces from AGENTS.md "Pruebas": the input-facing code of the crypto
+# core. Both targets must be total (no panic, no unbounded allocation) for any
+# input, including invalid UTF-8.
+[[bin]]
+name = "base32_decode"
+path = "fuzz_targets/base32_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "otpauth_parse"
+path = "fuzz_targets/otpauth_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "secret_from_base32"
+path = "fuzz_targets/secret_from_base32.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_endpoints"
+path = "fuzz_targets/http_endpoints.rs"
+test = false
+doc = false
+bench = false
