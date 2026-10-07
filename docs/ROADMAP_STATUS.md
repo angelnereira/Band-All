@@ -12,7 +12,7 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | **H3** API MFA | ✅ | ✅ 29 unit + 11 E2E | ✅ | **cerrado** (sujeto a CI verde) |
 | **H4** Tokens | ✅ | ✅ tokens (8); E2E de rotación verde, **con Postgres** | ⚠️ | **abierto** (ítem 5 web: entregado como guía + ADR-0011, sin cookies en el servidor) |
 | **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h** | ⚠️ | **abierto** (distroless cerrado; falta CI, pentest y decisión de ADR-0009) |
-| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK Python (5) y TS (5)**; **demo forward-auth funcionando en Docker** | ⚠️ | **abierto** (demo ya levantada; SDKS Go/C# pendientes del alcance) |
+| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (ejemplo `store/examples/embedded.rs`: enrola y verifica offline con antirreplay) | ⚠️ | **abierto** (ítem 2 `sdk-axum`: exigir `scopes` choca con el modelo de claims de ADR-0005, que no lleva scopes en el JWT — ∎ decisión humana) |
 | **H7** App autenticadora | ⚠️ solo `authenticator-core` (6 ✅); UI nativa/UniFFI no empezada | ⚠️ | ❌ | **abierto** |
 | **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; SLOs medidos, DR, caos **no** | ❌ | ❌ | **abierto** |
 | **H9** Certificación | ❌ (pentest, WebAuthn, FIPS) | ❌ | ❌ | **no empezado** |

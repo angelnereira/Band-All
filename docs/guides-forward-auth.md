@@ -92,8 +92,29 @@ bandall apikey create --config bandall.toml --tenant acme --scopes "verify"
 El cliente firma la cadena canónica (`METHOD\nPATH\nQUERY\nSHA256(body)\ntimestamp\nnonce`)
 y envía `X-Signature: v1=<hex>` + `X-Key-Id`, `X-Timestamp`, `X-Nonce`.
 El servidor valida en `POST /v1/sigs/verify` (tolerancia ±5 min, nonce de un
-solo uso, comparación constante). Los SDKs TS/Python implementan ambas
-orillas sobre los mismos vectores (`sdks/conformance`).
+solo uso, comparación constante).
+
+## 4. SDKs finos y modo embebido
+
+Cuatro SDKs pasan los **mismos vectores de conformidad** (`sdks/conformance/vectors.json`):
+verificación de JWT offline (EdDSA) y firmas HMAC. `just sdks` los ejecuta todos;
+el job `sdks` de CI igual (Node 24, Python 3.13, Go 1.25, .NET 8).
+
+| SDK | Verificación JWT | Firmas HMAC | Test |
+|---|---|---|---|
+| TypeScript (`sdks/ts`) | `verifyJwt(jwks, token, iss, aud, now)` | `sign`/`verifySignature` | `node --test` |
+| Python (`sdks/python`) | `bandall_sdk.jwt.verify_jwt` | `bandall_sdk.hmac.*` | `unittest` |
+| Go (`sdks/go`) | `bandall.VerifyJWT(jwks, token, iss, aud, now)` | `bandall.Sign`/`VerifySignature` | `go test ./...` |
+| C# (`sdks/csharp`) | `BandAll.Jwt.Verify(jwks, token, iss, aud, now)` | `BandAll.Hmac.*` | `dotnet test` |
+
+**Modo embebido**: si BandAll se integra como librería (sin HTTP), el ejemplo
+`crates/store/examples/embedded.rs` muestra el ciclo completo en un binario
+único: enrula con el secreto cifrado en SQLite, verifica un código con el
+antirreplay atómico y rechaza el replay. Ejecutarlo:
+
+```sh
+cargo run -p bandall-store --example embedded
+```
 
 ## Notas de producción
 
