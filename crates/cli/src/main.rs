@@ -136,9 +136,15 @@ enum ApikeyCommand {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match cli.command.unwrap_or(Command::Serve {
-        config: PathBuf::from("bandall.toml"),
-    }) {
+    execute(cli)
+}
+
+/// Runs the parsed command line. Defaults to `serve` when no subcommand was
+/// given (the container pattern), reading the config path from `BANDALL_CONFIG`
+/// before falling back to `bandall.toml`.
+fn execute(cli: Cli) -> ExitCode {
+    let command = cli.command.unwrap_or_else(default_serve);
+    match command {
         Command::Serve { config } => serve(&config),
         Command::Migrate { config } => migrate(&config),
         Command::Audit { command } => match command {
@@ -297,6 +303,26 @@ fn load_config(path: &std::path::Path) -> bandall_api::Config {
 
 /// Creates a tenant, printing its id (operator bootstrapping, e.g. load
 /// fixtures and the H6 demo).
+/// The config path when no subcommand was given: `BANDALL_CONFIG` when set,
+/// `bandall.toml` otherwise. Clap's `env = "BANDALL_CONFIG"` cannot apply to an
+/// argument that was never spelled out, but the container pattern
+/// (`ENTRYPOINT ["bandall"]` + a mounted `/config/bandall.toml`) depends on
+/// exactly that, so it needs to be handled here. The env lookup is injected so
+/// the unit test can fake it without touching the process environment.
+fn default_serve() -> Command {
+    default_serve_from(|name| std::env::var(name))
+}
+
+/// `default_serve` with the environment lookup parameterised for tests.
+fn default_serve_from(lookup: impl Fn(&str) -> Result<String, std::env::VarError>) -> Command {
+    Command::Serve {
+        config: lookup("BANDALL_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("bandall.toml")),
+    }
+}
+
+/// The config path when no subcommand was given: `BANDALL_CONFIG` when set,
 fn tenant_create(config_path: &std::path::Path, name: &str) -> ExitCode {
     setup_logging();
     let config = load_config(config_path);
@@ -469,6 +495,31 @@ mod tests {
     fn parses_serve_with_config() {
         let cli = Cli::parse_from(["bandall", "serve", "--config", "/tmp/x.toml"]);
         assert!(matches!(cli.command, Some(Command::Serve { .. })));
+    }
+
+    #[test]
+    fn default_serve_honours_bandall_config_env() {
+        // The container pattern runs `bandall` with no subcommand and points
+        // at the config through `BANDALL_CONFIG`; `default_serve` must map
+        // that to `serve --config`, otherwise the container tries to read
+        // `bandall.toml` from the working directory and dies.
+        let command = super::default_serve_from(|name| {
+            assert_eq!(name, "BANDALL_CONFIG");
+            Ok("/etc/bandall/bandall.toml".to_string())
+        });
+        let Command::Serve { config } = command else {
+            panic!("default must be `serve`");
+        };
+        assert_eq!(config, PathBuf::from("/etc/bandall/bandall.toml"));
+    }
+
+    #[test]
+    fn default_serve_falls_back_to_bandall_toml() {
+        let command = super::default_serve_from(|_| Err(std::env::VarError::NotPresent));
+        let Command::Serve { config } = command else {
+            panic!("default must be `serve`");
+        };
+        assert_eq!(config, PathBuf::from("bandall.toml"));
     }
 
     #[test]
