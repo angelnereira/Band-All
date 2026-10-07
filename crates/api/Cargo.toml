@@ -31,10 +31,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 utoipa = "5"
 # Constant-time service-key comparison.
 subtle = "2"
-# SHA-256 audit hash chain.
+# Audit hash chain (remediation T4): keyed HMAC-SHA-256 (v2) plus the
+# unkeyed SHA-256 needed to verify legacy v1 rows.
 sha2 = "0.10"
+hmac = "0.12"
 # Secret hygiene for transient plaintext copies.
 secrecy = "0.10"
+# Zeroed scratch buffers holding key material (audit key read from disk).
+# Already in the workspace lock via `secrecy`, so no new supply-chain surface.
+zeroize = "1"
 # Ad-hoc error context (never surfaced to clients).
 anyhow = "1"
 # Typed errors.

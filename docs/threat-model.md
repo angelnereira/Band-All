@@ -23,7 +23,7 @@ Servicio BandAll (`api`, `vault`, `tokens`, `policy`, `store`, `sigs`), CLI y su
 | Phishing en tiempo real | Límite inherente de TOTP; WebAuthn/passkeys como segundo factor | H9 |
 | Robo de refresh token | Rotación en cada uso + detección de reutilización + device binding (opcional) | H4 |
 | Deriva de reloj | Ventana ±1 + `drift_steps` acotado | H3 |
-| Insider / admin | Auditoría encadenada por hash, separación de roles, acceso a KMS auditado | H5 |
+| Insider / admin | Auditoría encadenada con HMAC y clave fuera de la DB (ADR-0010), append atómico, `REVOKE` de `UPDATE`/`DELETE` en Postgres | H5 |
 | Cadena de suministro | `cargo-deny`/`audit`/`vet`, builds reproducibles, SBOM, firmas | H5 |
 | DoS | Límites de body/timeouts, rate limit, load-shed | H5 |
 | Fuga de secretos en logs | Prohibición por regla + pruebas automáticas de patrones en logs | H5 |
@@ -33,14 +33,19 @@ Servicio BandAll (`api`, `vault`, `tokens`, `policy`, `store`, `sigs`), CLI y su
 
 - TOTP es phishable; no hay factor resistente a phishing hasta H9.
 - `LocalKms` (H2) protege contra robo de DB, pero no contra compromiso total del host: producción requiere KMS/HSM real (checklist de `BANDALL_ROADMAP.md` §4).
+- La cadena de auditoría v2 (ADR-0010) verifica la integridad **desde la
+  migración**, no desde el génesis: las filas escritas con el hash v1 sin clave
+  siguen validando, así que un historial manipulado antes de esa migración no
+  se detecta. Tampoco hay rotación de la clave de auditoría, porque una sola
+  clave firma toda la cadena (ver §Rotación de ADR-0010).
 - Sin pentest externo hasta H9.
 - Sin cifrado del lado del cliente ni backup: la app móvil no existe aún (H7).
 
 ## Estado de implementación (v1, H0–H8)
 
 - H1–H4: núcleo TOTP, vault, store, API MFA, tokens y sesiones según diseño.
-- H5: `policy` (backoff/lockout), negación uniforme, auditoría encadenada,
-  revisión ASVS (`docs/asvs-l3-review.md`).
+- H5: `policy` (backoff/lockout), negación uniforme, auditoría encadenada con
+  clave y append atómico (ADR-0010), revisión ASVS (`docs/asvs-l3-review.md`).
 - H6: firmas HMAC por cliente, forward-auth, `sdk-axum`, SDKs TS/Python
   sobre vectores compartidos, demo legacy, ejemplo embebido.
 - H7: `authenticator-core` (cuentas, backup cifrado); UI nativa y UniFFI

@@ -180,6 +180,7 @@ dependencies = [
  "bandall-tokens",
  "bandall-totp-core",
  "bandall-vault",
+ "hmac",
  "secrecy",
  "serde",
  "serde_json",
@@ -193,6 +194,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "zeroize",
 ]
 
 [[package]]

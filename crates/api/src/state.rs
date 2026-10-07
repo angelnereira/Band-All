@@ -33,6 +33,8 @@ pub struct AppState {
     pub keys: Arc<KeyManager>,
     /// Failure tracker (rate limit, backoff, lockout).
     pub policy: PolicyHandle,
+    /// Keyed audit hash chain (T4).
+    pub audit: Arc<crate::audit::AuditChain>,
     /// Reverse proxies trusted to set `X-Forwarded-For`.
     pub trusted_proxies: Arc<TrustedProxies>,
     /// Process metrics (Prometheus exposition).
@@ -56,6 +58,7 @@ impl AppState {
         vault: Arc<Vault>,
         keys: Arc<KeyManager>,
         policy: PolicyHandle,
+        audit: Arc<crate::audit::AuditChain>,
         trusted_proxies: Arc<TrustedProxies>,
         issuer: String,
         audience: String,
@@ -66,6 +69,7 @@ impl AppState {
             vault,
             keys,
             policy,
+            audit,
             trusted_proxies,
             metrics: Arc::new(Metrics::new()),
             nonces: Arc::new(Mutex::new(NonceCache::new())),

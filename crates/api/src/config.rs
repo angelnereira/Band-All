@@ -126,6 +126,32 @@ fn masked_v6(addr: Ipv6Addr, prefix: u8) -> u128 {
     u128::from(addr) & mask
 }
 
+/// Rejects a secret file readable by group or others (Unix). Same rule the
+/// local KMS applies to its KEK: without it, any local account could read the
+/// audit-chain key and forge a log that verifies.
+pub fn require_owner_only_file(path: &Path) -> Result<(), Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path)
+            .map_err(|e| Error::Config(format!("cannot stat {0}: {e}", path.display())))?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            return Err(Error::Config(format!(
+                "{0} must not be group- or world-readable (chmod 600)",
+                path.display()
+            )));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // Non-Unix platforms rely on the deployment to restrict access.
+        let _ = path;
+    }
+    Ok(())
+}
+
 /// Server configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -140,6 +166,9 @@ pub struct Config {
     pub kms_key_file: String,
     /// KEK identifier recorded on sealed secrets.
     pub kek_id: String,
+    /// Path to the 32-byte audit-chain key file (T4). Kept outside the
+    /// database: without it a writer could recompute the whole chain.
+    pub audit_key_file: String,
     /// Static service key for S2S calls (H3 stepping stone; H6 moves to
     /// per-client keys in the database).
     pub service_key: String,
@@ -235,6 +264,9 @@ impl Config {
         if let Ok(value) = std::env::var("BANDALL_KEK_ID") {
             self.kek_id = value;
         }
+        if let Ok(value) = std::env::var("BANDALL_AUDIT_KEY_FILE") {
+            self.audit_key_file = value;
+        }
         if let Ok(value) = std::env::var("BANDALL_SERVICE_KEY") {
             self.service_key = value;
         }
@@ -297,6 +329,11 @@ impl Config {
         if self.kek_id.is_empty() {
             return Err(Error::Config("kek_id is empty".to_string()));
         }
+        // Mandatory: without the key the chain falls back to the legacy
+        // unkeyed hash, which anyone with write access can recompute.
+        if self.audit_key_file.is_empty() {
+            return Err(Error::Config("audit_key_file is empty".to_string()));
+        }
         if self.service_key.len() < 32 {
             return Err(Error::Config(
                 "service_key must be at least 32 characters".to_string(),
@@ -339,6 +376,7 @@ impl Config {
              database_url = \"sqlite:bandall.db\"\n\
              kms_key_file = \"/run/secrets/bandall-kek\"\n\
              kek_id = \"kek-1\"\n\
+             audit_key_file = \"/run/secrets/bandall-audit-key\"\n\
              service_key = \"change-me-to-at-least-32-chars\"\n\
              token_issuer = \"bandall\"\n\
              token_audience = \"bandall\"\n\
@@ -357,18 +395,39 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::{Config, PolicyBackendKind, TrustedProxies};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Unique per call: tests run in parallel and would otherwise share (and
+    /// delete) each other's file.
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
 
     fn write_config(body: &str) -> std::path::PathBuf {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        // Unique per test: tests run in parallel and would otherwise share
-        // (and delete) each other's file.
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "bandall-config-test-{}-{id}.toml",
             std::process::id()
         ));
         std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    /// Writes `len` bytes of test key material to a unique temp file with
+    /// `mode` permissions, and returns the path.
+    fn audit_key_file(tag: &str, len: usize, mode: u32) -> std::path::PathBuf {
+        use std::io::Write;
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "bandall-audit-key-{tag}-{}-{id}.bin",
+            std::process::id()
+        ));
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&vec![7u8; len]).unwrap();
+        drop(file);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
         path
     }
 
@@ -387,7 +446,7 @@ mod tests {
     fn accepts_full_config() {
         let path = write_config(
             "database = \"sqlite\"\ndatabase_url = \"sqlite::memory:\"\n\
-             kms_key_file = \"/x\"\nkek_id = \"kek-1\"\n\
+             kms_key_file = \"/x\"\nkek_id = \"kek-1\"\naudit_key_file = \"/run/secrets/bandall-audit-key\"\n\
              service_key = \"0123456789abcdef0123456789abcdef\"\n",
         );
         let result = Config::load(&path);
@@ -403,13 +462,59 @@ mod tests {
     fn rejects_invalid_trusted_proxy() {
         let path = write_config(
             "database = \"sqlite\"\ndatabase_url = \"sqlite::memory:\"\n\
-             kms_key_file = \"/x\"\nkek_id = \"kek-1\"\n\
+             kms_key_file = \"/x\"\nkek_id = \"kek-1\"\naudit_key_file = \"/run/secrets/bandall-audit-key\"\n\
              service_key = \"0123456789abcdef0123456789abcdef\"\n\
              trusted_proxies = [\"not-an-ip\"]\n",
         );
         let result = Config::load(&path);
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn requires_an_audit_key_file() {
+        // Without a key the chain falls back to the legacy unkeyed hash,
+        // which anyone with write access can recompute. Fail at startup
+        // instead of silently downgrading the audit log.
+        let path = write_config(
+            "database = \"sqlite\"\ndatabase_url = \"sqlite::memory:\"\n\
+             kms_key_file = \"/x\"\nkek_id = \"kek-1\"\n\
+             service_key = \"0123456789abcdef0123456789abcdef\"\n",
+        );
+        let result = Config::load(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_a_world_readable_audit_key() {
+        #[cfg(unix)]
+        {
+            let path = audit_key_file("bad", 32, 0o644);
+            let result = crate::audit::AuditChain::from_file(&path);
+            std::fs::remove_file(&path).ok();
+            assert!(result.is_err(), "0644 audit key must be refused");
+        }
+    }
+
+    #[test]
+    fn accepts_an_owner_only_audit_key_file() {
+        #[cfg(unix)]
+        {
+            let path = audit_key_file("ok", 32, 0o600);
+            assert!(crate::audit::AuditChain::from_file(&path).is_ok());
+            std::fs::remove_file(&path).ok();
+        }
+    }
+
+    #[test]
+    fn rejects_a_short_audit_key() {
+        #[cfg(unix)]
+        {
+            let path = audit_key_file("short", 16, 0o600);
+            assert!(crate::audit::AuditChain::from_file(&path).is_err());
+            std::fs::remove_file(&path).ok();
+        }
     }
 
     #[test]

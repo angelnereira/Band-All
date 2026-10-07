@@ -27,6 +27,7 @@ pub mod state;
 pub mod token;
 pub mod verify;
 
+pub use audit::AuditChain;
 pub use bandall_store::AuditEntry;
 pub use bandall_store::NewApiClient;
 pub use config::{Config, DatabaseKind};

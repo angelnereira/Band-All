@@ -6,6 +6,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ### Added
 
+- T4: **cadena de auditoría con clave** (ADR-0010, migración 7). HMAC-SHA-256 sobre un registro con prefijo de longitud que cubre versión, `ts`, `tenant_id`, `subject_id`, `event` y `prev_hash`; clave de 32 B en `audit_key_file` (obligatoria, `0600`) fuera de la base de datos; `bandall audit verify` la usa. El append pasa a `Store::append_audit_chained`, una transacción que lee el tip bajo bloqueo y calcula el enlace dentro, así que dos escritores ya no pueden bifurcar la cadena. `chain_version` permite verificar filas v1 y v2 en el mismo log. Postgres revoca `UPDATE`/`DELETE`/`TRUNCATE` sobre `audit_log` a `PUBLIC` y al rol `bandall_app` cuando existe.
 - H0: workspace Cargo con los crates `bandall-*`, lints de seguridad, CI (fmt, clippy, tests, MSRV, cargo-deny, cargo-audit, cobertura y build de imagen).
 - Docker: imagen distroless no-root y stack de desarrollo con Postgres 16.
 - `justfile` con el gate `just check` y la política `deny.toml`.
@@ -29,8 +30,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - Revisión pre-producción: `deny.toml` endurecido, lints de casts/prints, perfiles con `overflow-checks`, CI con runner y acciones fijadas por SHA, `README.md`, tablero de gates (`docs/ROADMAP_STATUS.md`), ADR-0008 (estado compartido de rate-limit; TLS a Postgres en rama `feat/pg-tls-enforcement` pendiente de verificar) y diagnóstico de verificación (`docs/VERIFICATION.md`).
 - Endurecimiento de configuración (ADR-0007): `deny.toml` con `yanked`/`wildcards` en `deny`, lints de casts y `print_*`/`todo`/`dbg` en el workspace, `overflow-checks` en release y test, CI en `ubuntu-24.04` con `timeout-minutes` y `--locked`, y `README.md`.
 
+### Changed
+
+- T4: **rompe la configuración**: `audit_key_file` es obligatoria y el arranque
+  falla sin ella. Exponer `/metrics` sin cambio. Quien despliegue debe generar
+  el archivo (32 B) junto al de la KEK y montarlo con permisos `0600`. Compose
+  y Helm lo montan ya.
+
 ### Fixed
 
+- T4: la auditoría era recalculable por cualquiera con escritura en `audit_log`
+  (hash sin clave), `tenant_id` y `subject_id` quedaban fuera del prehash (cambiar de titular una fila no rompía la verificación) y los campos iban concatenados sin prefijo de longitud. Los tres están cerrados; ver "Added".
 - H0: runtime Docker cambiado de distroless `cc` a `debian:12-slim` (ver ADR-0002).
 - H0: Postgres de desarrollo escucha en el puerto de host 5433 por defecto para no chocar con otros proyectos locales.
 - T1: `ci.yml` era **inválido**: `defaults.run.timeout-minutes` no existe en el esquema (GitHub creaba el run con 0 jobs). Timeouts por job, `concurrency` por ref, `totp-core` con umbral de cobertura del 90 % y los 12 SHAs re-verificados contra tags exactos con `git ls-remote`.

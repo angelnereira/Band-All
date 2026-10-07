@@ -1,0 +1,11 @@
+-- Keyed audit chain v2 (remediation T4).
+--
+-- `chain_version` tells a verifier how `hash` was derived: 1 = legacy
+-- unkeyed SHA-256 over (prev, event, ts), 2 = HMAC-SHA-256 over the
+-- length-prefixed record with a key held outside the database. Existing rows
+-- keep verifying as v1; only new appends write v2.
+--
+-- SQLite has no roles, so append-only rests on the serialized transaction in
+-- `append_audit_chained` plus the operator's file permissions on the database
+-- file.
+ALTER TABLE audit_log ADD COLUMN chain_version INTEGER NOT NULL DEFAULT 1;

@@ -25,4 +25,9 @@ pub enum Error {
     /// Integer out of range for the domain type.
     #[error("integer out of range")]
     OutOfRange,
+
+    /// A chain-link hash could not be computed (fail closed: the entry is not
+    /// appended, so the log never gains an unverifiable row).
+    #[error("audit chain hash failure")]
+    ChainHash,
 }

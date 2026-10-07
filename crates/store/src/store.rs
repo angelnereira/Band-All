@@ -14,8 +14,8 @@ use bandall_policy::{Decision, Limits};
 
 use crate::error::Error;
 use crate::types::{
-    ApiClient, AuditEntry, Factor, NewApiClient, NewFactor, NewRefresh, RecoveryHash, RefreshEntry,
-    Session, Subject, Tenant,
+    ApiClient, AuditEntry, AuditHasher, Factor, NewApiClient, NewAudit, NewFactor, NewRefresh,
+    RecoveryHash, RefreshEntry, Session, Subject, Tenant,
 };
 
 /// Boxed future shorthand for trait methods.
@@ -147,19 +147,19 @@ pub trait Store: Send + Sync {
         now_secs: i64,
     ) -> BoxFuture<'a, Result<(), Error>>;
 
-    /// Appends an audit entry with its chain hashes.
-    fn append_audit<'a>(
+    /// Appends one audit entry, chaining it to the current tip.
+    ///
+    /// The whole append is a single transaction: the tip is read under a lock
+    /// (Postgres: `pg_advisory_xact_lock`; SQLite: `BEGIN IMMEDIATE`) and the
+    /// row is inserted before releasing it, so concurrent callers produce one
+    /// linear chain instead of forking. `hasher` derives the link inside that
+    /// transaction, which is why the caller cannot supply a stale
+    /// `prev_hash`.
+    fn append_audit_chained<'a>(
         &'a self,
-        ts: i64,
-        tenant_id: &'a str,
-        subject_id: &'a str,
-        event: &'a str,
-        prev_hash: &'a [u8],
-        hash: &'a [u8],
+        entry: NewAudit,
+        hasher: &'a dyn AuditHasher,
     ) -> BoxFuture<'a, Result<(), Error>>;
-
-    /// Latest audit hash (`None` at genesis).
-    fn last_audit_hash(&self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Error>>;
 
     /// Counts recorded failures for `key` newer than `since` (Unix seconds).
     fn count_auth_failures<'a>(

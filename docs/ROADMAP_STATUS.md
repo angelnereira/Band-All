@@ -11,7 +11,7 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | **H2** Vault + store | ✅ | ✅ vault (8+1); store **SQLite** (4) | ⚠️ | **abierto** (falta batería Postgres real) |
 | **H3** API MFA | ✅ | ✅ 11 unit + 9 E2E | ✅ | **cerrado** (sujeto a CI verde) |
 | **H4** Tokens | ✅ | ⚠️ tokens sí (8); E2E de rotación **sí** (verde local) | ⚠️ | **abierto** (falta CI) |
-| **H5** Hardening | ✅ | ⚠️ policy (8, T2) y sigs (4) sí; auditoría encadenada no atómica | ⚠️ | **abierto** (T4 pendiente) |
+| **H5** Hardening | ✅ | ⚠️ policy (8, T2) y sigs (4) sí; auditoría encadenada **con clave y append atómico** (T4) | ⚠️ | **abierto** (T4 sin Postgres real ni CI) |
 | **H6** Integración | ✅ | ⚠️ sdk-axum (2) y sigs (4) sí; SDK TS/Python **no**; demo sin levantar | ❌ | **abierto** |
 | **H7** App autenticadora | ⚠️ solo `authenticator-core` (6 ✅); UI nativa/UniFFI no empezada | ⚠️ | ❌ | **abierto** |
 | **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; SLOs medidos, DR, caos **no** | ❌ | ❌ | **abierto** |
@@ -26,11 +26,13 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
    diagnóstico previo *"The job was not started because your account is locked
    due to a billing issue"* sigue siendo la causa a resolver; no es un defecto
    del workflow. GitGuardian sí pasa (no usa runners de Actions).
-2. **Entorno sin Postgres ni herramientas**: en el host actual (Android/proot)
-   no hay `docker`, `just`, `cargo-deny` ni `cargo-audit`. Sí se ejecutó la
-   suite completa del workspace (82 tests verdes), pero la **batería contra
-   Postgres real**, `cargo deny`, `cargo audit`, cobertura y fuzz siguen sin
-   poder correr aquí. `docs/VERIFICATION.md` tiene el detalle.
+2. **Entorno sin Postgres ni herramientas**: en este host hay `cargo`/`rustc`
+   1.99 y la suite completa corre (**103 tests verdes**, `fmt` y `clippy -D
+   warnings` limpios), pero el demonio de Docker está parado y no hay `sudo`
+   sin contraseña, así que no hay Postgres 16 para la batería real. Faltan
+   además `just`, `cargo-deny` y `cargo-audit`. La **batería contra Postgres
+   real**, `cargo deny`, `cargo audit`, cobertura y fuzz siguen sin poder correr
+   aquí. `docs/VERIFICATION.md` tiene el detalle.
 3. **Host anterior inestable (histórico)**: `rustc` ICE al enlazar proc-macro
    crates bajo `cargo`. No se reproduce en el host actual, pero no se ha
    descartado como causa de fondo (memoria/disco).
@@ -51,7 +53,8 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | T1 `ci.yml` | ✅ fusionada (PR #2) |
 | T2 rate limit atómico + scopes + backend `database` | ✅ PR #3 (rama `fix/atomic-rate-limit`, 82 tests verdes); falta CI + Postgres real |
 | T3 ventana de 3 pasos y deriva observada | ✅ rama `fix/verification-window-and-drift` (25 tests de `api` verdes); ADR-0009 **esperando decisión humana** |
-| T4–T10 | pendientes (en el orden del brief) |
+| T4 auditoría robusta | ✅ rama `fix/audit-chain-v2` (103 tests verdes; **ADR-0010**, migración 7); falta Postgres real y CI |
+| T5–T10 | pendientes (en el orden del brief) |
 
 ## Nota de proceso
 

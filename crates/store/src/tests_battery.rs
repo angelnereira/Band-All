@@ -1,9 +1,11 @@
 //! Shared conformance battery: every backend must pass it identically.
 //! Executed by CI (SQLite in-memory always, Postgres via service container).
 
+use std::sync::Arc;
+
 use crate::error::Error;
 use crate::store::Store;
-use crate::types::{NewApiClient, NewFactor, NewRefresh, new_factor_id};
+use crate::types::{AuditHasher, NewApiClient, NewAudit, NewFactor, NewRefresh, new_factor_id};
 
 fn dummy_factor(tenant_id: &str, subject_id: &str) -> NewFactor {
     NewFactor {
@@ -21,6 +23,36 @@ fn dummy_factor(tenant_id: &str, subject_id: &str) -> NewFactor {
         digits: 6,
         period: 30,
         created_at: 1_700_000_000,
+    }
+}
+
+/// Test hasher: the shape production uses (a key plus a hash over a
+/// length-prefixed frame), with a deterministic key so the battery can assert
+/// exact hashes. Production code uses HMAC-SHA-256 (`bandall-api`); what the
+/// store must guarantee is that the link is derived inside the transaction.
+struct BatteryChain {
+    key: u8,
+}
+
+impl AuditHasher for BatteryChain {
+    fn link(&self, entry: &NewAudit, prev_hash: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut out = Vec::new();
+        for field in [
+            entry.chain_version.to_be_bytes().as_slice(),
+            entry.ts.to_be_bytes().as_slice(),
+            entry.tenant_id.as_bytes(),
+            entry.subject_id.as_bytes(),
+            entry.event.as_bytes(),
+            prev_hash,
+        ] {
+            // u32 length, like the production frame: a narrow length would
+            // make the framing itself lossy for long fields.
+            let len = u32::try_from(field.len()).unwrap_or(u32::MAX);
+            out.extend_from_slice(&len.to_be_bytes());
+            out.extend_from_slice(field);
+        }
+        out.push(self.key);
+        Ok(out)
     }
 }
 
@@ -152,34 +184,54 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
         .ok_or(Error::CorruptRow)?;
     assert!(dead.revoked_at.is_some());
 
-    // Audit log: append-only with genesis hash.
-    assert!(store.last_audit_hash().await?.is_none());
+    // Audit log: the store chains each append to the current tip itself, so
+    // the caller never supplies a hash. Genesis row comes first.
+    let chainer = BatteryChain { key: 0xAB };
     store
-        .append_audit(
-            1_700_000_400,
-            &tenant.id,
-            &subject.id,
-            "mfa.verified",
-            &[0u8; 32],
-            &[1u8; 32],
+        .append_audit_chained(
+            NewAudit {
+                ts: 1_700_000_400,
+                tenant_id: tenant.id.clone(),
+                subject_id: subject.id.clone(),
+                event: "mfa.verified".to_string(),
+                chain_version: NewAudit::CHAIN_V2,
+            },
+            &chainer,
         )
         .await?;
-    let tip = store.last_audit_hash().await?.ok_or(Error::CorruptRow)?;
-    assert_eq!(tip, vec![1u8; 32]);
     store
-        .append_audit(
-            1_700_000_401,
-            &tenant.id,
-            &subject.id,
-            "token.revoked",
-            &[1u8; 32],
-            &[2u8; 32],
+        .append_audit_chained(
+            NewAudit {
+                ts: 1_700_000_401,
+                tenant_id: tenant.id.clone(),
+                subject_id: subject.id.clone(),
+                event: "token.revoked".to_string(),
+                chain_version: NewAudit::CHAIN_V2,
+            },
+            &chainer,
         )
         .await?;
     let entries = store.list_audit(100).await?;
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].event, "mfa.verified");
-    assert_eq!(entries[1].prev_hash, vec![1u8; 32]);
+    // First row chains to genesis; the second to the first row's hash.
+    assert_eq!(entries[0].prev_hash, vec![0u8; 32]);
+    assert_eq!(entries[1].prev_hash, entries[0].hash);
+    assert_ne!(entries[0].hash, entries[1].hash);
+    assert_eq!(entries[0].chain_version, NewAudit::CHAIN_V2);
+    assert_eq!(entries[1].chain_version, NewAudit::CHAIN_V2);
+    // The hash is the store's, derived inside the transaction.
+    let expected = chainer.link(
+        &NewAudit {
+            ts: 1_700_000_400,
+            tenant_id: tenant.id.clone(),
+            subject_id: subject.id.clone(),
+            event: "mfa.verified".to_string(),
+            chain_version: NewAudit::CHAIN_V2,
+        },
+        &[0u8; 32],
+    )?;
+    assert_eq!(entries[0].hash, expected);
 
     // API clients: create, lookup, revoke.
     let client = store
@@ -205,6 +257,71 @@ pub async fn full_cycle<S: Store>(store: &S) -> Result<(), Error> {
         .await?
         .ok_or(Error::CorruptRow)?;
     assert!(dead_client.revoked_at.is_some());
+
+    Ok(())
+}
+
+/// Appends under concurrency must produce one linear chain (T4).
+///
+/// The old two-call `last_audit_hash` + `append_audit` let two writers read
+/// the same tip and fork the log. `append_audit_chained` reads the tip under a
+/// lock, so a concurrent burst serializes: no two rows may share a
+/// `prev_hash`, and every row must be reachable from the previous one.
+pub async fn audit_chain_concurrency<S: Store + Send + Sync + 'static>(
+    store: &Arc<S>,
+) -> Result<(), Error> {
+    const WRITERS: usize = 50;
+    let chainer = Arc::new(BatteryChain { key: 0x11 });
+
+    // `full_cycle` may already have appended rows to this store, so the burst
+    // is checked from the tip it started at rather than from genesis.
+    let before = store.list_audit(1_000).await?;
+    let baseline = before.len();
+
+    // Genuinely concurrent: every writer is polled as its own task, so they
+    // contend for the tip instead of running one after another.
+    let mut tasks = Vec::with_capacity(WRITERS);
+    for index in 0..WRITERS {
+        let entry = NewAudit {
+            ts: 1_700_001_000 + i64::try_from(index).unwrap_or(0),
+            tenant_id: format!("tenant-{index}"),
+            subject_id: format!("subject-{index}"),
+            event: "mfa.verified".to_string(),
+            chain_version: NewAudit::CHAIN_V2,
+        };
+        let store = Arc::clone(store);
+        tasks.push(tokio::spawn({
+            let chainer = Arc::clone(&chainer);
+            async move { store.append_audit_chained(entry, &chainer).await }
+        }));
+    }
+    for task in tasks {
+        task.await.map_err(|_| Error::CorruptRow)??;
+    }
+
+    let all = store.list_audit(1_000).await?;
+    assert_eq!(all.len(), baseline + WRITERS);
+    let burst = &all[baseline..];
+
+    // Linear: every new row chains to its immediate predecessor, and the first
+    // chains to whatever the tip was before the burst.
+    let mut prev = before
+        .last()
+        .map_or_else(|| vec![0u8; 32], |entry| entry.hash.clone());
+    for (index, entry) in burst.iter().enumerate() {
+        assert_eq!(entry.prev_hash, prev, "fork or gap at row {index}");
+        prev = entry.hash.clone();
+    }
+    // A forked chain repeats a predecessor; a linear one never does.
+    let mut seen: Vec<Vec<u8>> = burst.iter().map(|e| e.prev_hash.clone()).collect();
+    seen.sort();
+    let distinct = seen.len();
+    seen.dedup();
+    assert_eq!(
+        distinct,
+        seen.len(),
+        "two rows share a predecessor: the chain forked"
+    );
 
     Ok(())
 }

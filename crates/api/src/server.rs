@@ -102,6 +102,10 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
         .map_err(|_| Error::Config("cannot load KMS key".to_string()))?,
     );
     let vault = Arc::new(Vault::new(kms));
+    let audit = Arc::new(
+        crate::audit::AuditChain::from_file(std::path::Path::new(&config.audit_key_file))
+            .map_err(|_| Error::Config("cannot load audit chain key".to_string()))?,
+    );
     let keys = Arc::new(
         KeyManager::load_or_generate(std::path::Path::new(&config.keys_dir))
             .map_err(|_| Error::Config("cannot load signing keys".to_string()))?,
@@ -137,6 +141,7 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
                     vault,
                     keys,
                     policy,
+                    audit,
                     trusted_proxies,
                     issuer,
                     audience,
@@ -154,6 +159,7 @@ pub async fn build_state(config: &Config) -> Result<(AppState, StoreKind), Error
                     vault,
                     keys,
                     policy,
+                    audit,
                     trusted_proxies,
                     issuer,
                     audience,
