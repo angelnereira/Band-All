@@ -24,6 +24,12 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
+    # WebPKI root store (`webpki-roots`, transitively via rustls in sqlx).
+    # CDLA-Permissive-2.0 is a permissive licence: it requires attribution and
+    # limits liability, and imposes no copyleft or field-of-use restriction.
+    # Added because `cargo deny` rejected it and the TLS stack cannot drop it
+    # while staying on rustls (AGENTS.md forbids native-tls/OpenSSL).
+    "CDLA-Permissive-2.0",
 ]
 # Workspace crates are unpublished (publish = false), so they carry no license field.
 private = { ignore = true }

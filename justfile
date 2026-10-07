@@ -32,12 +32,39 @@ deny:
     cargo deny check
 
 audit:
-    cargo audit --deny warnings
+    # RUSTSEC-2023-0071 (Marvin Attack, RSA key recovery via timing) reaches
+    # this graph only through `rsa` <- `sqlx-mysql`, an optional sqlx feature
+    # that `crates/store` never enables, so `cargo tree` shows no `rsa` node in
+    # the enabled feature graph and the code is never compiled. There is no
+    # upstream fix. Revisit before BandAll ever enables a MySQL backend.
+    #
+    # Kept here rather than in an `audit.toml` because cargo-audit 0.22 has no
+    # config file: it silently ignores one, so the ignore would look effective
+    # and never apply.
+    cargo audit --deny warnings --ignore RUSTSEC-2023-0071
 
 # CI-only jobs, exposed locally for convenience.
 sdks:
-    cd sdks/ts && node --test test/vectors.test.ts
-    cd sdks/python && python -m unittest discover -s tests
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Python first: it has no toolchain requirement, so it must never be
+    # skipped because of an unrelated Node limitation. `python3` is the name on
+    # most systems; CI's setup-python puts `python` on PATH, `python3` covers
+    # both.
+    (cd sdks/python && python3 -m unittest discover -s tests)
+
+    # The TypeScript test runs `node --test` on a `.ts` file, which needs Node's
+    # native type stripping: default from Node 23.6 (CI pins 24). Older builds
+    # and distro builds compiled without it fail with ERR_UNKNOWN_FILE_EXTENSION
+    # / ERR_NO_TYPESCRIPT, which says nothing about the SDK. Detect that case
+    # and skip instead of reporting a red gate for an environment gap; when the
+    # Node is capable, a failure here is real and must fail the recipe.
+    node_major=$(node --version | sed -E 's/^v([0-9]+)\..*/\1/')
+    if [ "$node_major" -lt 24 ] || ! node -e 'process.features.typescript' 2>/dev/null; then
+        echo "SKIP: sdks/ts (node $(node --version) has no native type stripping; CI pins 24)" >&2
+        exit 0
+    fi
+    (cd sdks/ts && node --test test/vectors.test.ts)
 
 docker-build:
     docker build -f deploy/Dockerfile -t bandall:dev .

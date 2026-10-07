@@ -49,9 +49,9 @@ jobs:
       BANDALL_TEST_PG: postgres://bandall:bandall-ci-only@localhost:5432/bandall
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@c6590455eca8e79d081430ebfe2074192ae90290 # branch 1.98.1
+      - uses: dtolnay/rust-toolchain@70dec6087f2cb6bab9fbac4da23160afbe848e91 # branch 1.99.0
         with:
-          toolchain: 1.98.1
+          toolchain: 1.99.0
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all -- --check
@@ -91,6 +91,10 @@ jobs:
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Same ignore as `just audit`, with the reasoning there: RUSTSEC-2023-0071
+          # only reaches the graph via `rsa` <- `sqlx-mysql`, an optional sqlx
+          # feature this workspace never enables. No upstream fix exists.
+          ignore: RUSTSEC-2023-0071
 
   coverage:
     name: coverage
@@ -98,9 +102,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@c6590455eca8e79d081430ebfe2074192ae90290 # branch 1.98.1
+      - uses: dtolnay/rust-toolchain@70dec6087f2cb6bab9fbac4da23160afbe848e91 # branch 1.99.0
         with:
-          toolchain: 1.98.1
+          toolchain: 1.99.0
           components: llvm-tools-preview
       - uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
         with:

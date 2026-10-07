@@ -688,17 +688,40 @@ mod tests {
 
     /// Runs against Postgres when `BANDALL_TEST_PG` is set (CI service).
     /// Skips silently otherwise so local runs stay SQLite-only.
+    ///
+    /// The battery asserts absolute state (`last_audit_hash` at genesis, a
+    /// single-use recovery hash), so it needs a database it owns. CI gets a
+    /// fresh service container per run, but a developer's local database
+    /// persists: without this the second run fails with a `duplicate key`
+    /// error on `refresh_tokens` that says nothing about the code under test.
     #[tokio::test]
     async fn postgres_battery() {
         let Some(url) = std::env::var("BANDALL_TEST_PG").ok() else {
             return;
         };
         let store = PgStore::connect(&url).await.unwrap();
+        drop_schema(&store).await.unwrap();
         store.migrate().await.unwrap();
         tests_battery::full_cycle(&store).await.unwrap();
         tests_battery::auth_failures(&store).await.unwrap();
         tests_battery::audit_chain_concurrency(&Arc::new(store))
             .await
             .unwrap();
+    }
+
+    /// Drops and recreates `public` so the battery starts from an empty schema.
+    ///
+    /// `public` specifically, never the whole database: `BANDALL_TEST_PG` may
+    /// point at a database that also holds other schemas. Owner credentials are
+    /// assumed, which is what CI's service container and the documented local
+    /// cluster both provide.
+    async fn drop_schema(store: &PgStore) -> Result<(), Error> {
+        sqlx::query("DROP SCHEMA IF EXISTS public CASCADE")
+            .execute(&store.pool)
+            .await?;
+        sqlx::query("CREATE SCHEMA public")
+            .execute(&store.pool)
+            .await?;
+        Ok(())
     }
 }

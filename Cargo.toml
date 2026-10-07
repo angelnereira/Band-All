@@ -20,6 +20,31 @@ edition = "2024"
 rust-version = "1.85"
 publish = false
 
+# Intra-workspace dependencies, declared once here with an explicit version.
+#
+# Two reasons (AGENTS.md "Codigo": `cargo deny` must pass):
+#
+#   1. `deny.toml` sets `bans.wildcards = "deny"`. A path-only dependency has
+#      no version requirement, which cargo reads as `*`, so every intra-workspace
+#      edge was reported as a wildcard. Stating the version satisfies the rule
+#      without relaxing it.
+#   2. The dependency graph is readable in one place instead of being spread
+#      across ten manifests.
+#
+# The version is repeated from [workspace.package]; on a release bump both must
+# move together (`docs/RELEASING.md` §Versionado).
+[workspace.dependencies]
+bandall-api = { path = "crates/api", version = "0.1.0" }
+bandall-authenticator-core = { path = "crates/authenticator-core", version = "0.1.0" }
+bandall-cli = { path = "crates/cli", version = "0.1.0" }
+bandall-policy = { path = "crates/policy", version = "0.1.0" }
+bandall-sdk-axum = { path = "crates/sdk-axum", version = "0.1.0" }
+bandall-sigs = { path = "crates/sigs", version = "0.1.0" }
+bandall-store = { path = "crates/store", version = "0.1.0" }
+bandall-tokens = { path = "crates/tokens", version = "0.1.0" }
+bandall-totp-core = { path = "crates/totp-core", version = "0.1.0" }
+bandall-vault = { path = "crates/vault", version = "0.1.0" }
+
 # Integer overflow must never be silent, not even in release (AGENTS.md
 # "fail closed"): steps, counters and timestamps are all bounded domain values
 # where wrapping would be a security bug rather than a performance win.

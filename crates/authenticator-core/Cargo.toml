@@ -9,7 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-bandall-totp-core = { path = "../totp-core" }
+bandall-totp-core = { workspace = true }
 # Encrypted backup (Argon2id + XChaCha20-Poly1305).
 argon2 = "0.5"
 password-hash = "0.5"
