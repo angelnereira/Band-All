@@ -32,6 +32,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ### Changed
 
+- **Toolchain 1.98.1 → 1.99.0** en `rust-toolchain.toml` y en los dos jobs de CI que la fijan. El SHA de `dtolnay/rust-toolchain` para la rama `1.99.0` se resolvió con `git ls-remote`, no de memoria. Los otros 10 pins del workflow se re-verificaron igual y siguen correctos.
+- **Dependencias internas del workspace centralizadas** en `[workspace.dependencies]` con versión explícita, y cada crate usa `{ workspace = true }`. Motivo: `bans.wildcards = "deny"` marcaba las 10 aristas internas, porque una dependencia solo-`path` no declara versión y Cargo la lee como `*`. Se arregla la causa, **no se relaja la regla**. Al subir la versión hay que mover `[workspace.package]` y `[workspace.dependencies]` juntos.
+- Licencias: `CDLA-Permissive-2.0` añadida a la lista permitida de `deny.toml` (permisiva: atribución y límites de responsabilidad, sin copyleft ni restricción de uso). La trae `webpki-roots`, de forma transitiva por rustls en sqlx; la pila TLS no puede prescindir de ella mientras siga sobre rustls.
+- `cargo audit`: se ignora `RUSTSEC-2023-0071` (Marvin Attack) **con la razón documentada en el `justfile` y en el job de CI**. Solo llega al grafo por `rsa` <- `sqlx-mysql`, una feature opcional que `crates/store` nunca activa: `cargo tree` no muestra ningún nodo `rsa` con las features habilitadas, así que el código no se compila. No hay arreglo upstream. Hay que revisarlo si algún día se activa MySQL.
+- `just sdks`: Python se ejecuta primero (no depende de Node) y el paso de TypeScript se omite con un motivo explícito cuando el Node no tiene *type stripping* nativo, en vez de dejar un gate rojo engañoso. El job de CI no cambia: sigue fijando Node 24.
 - T4: **rompe la configuración**: `audit_key_file` es obligatoria y el arranque
   falla sin ella. Exponer `/metrics` sin cambio. Quien despliegue debe generar
   el archivo (32 B) junto al de la KEK y montarlo con permisos `0600`. Compose
@@ -41,6 +46,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 - T4: la auditoría era recalculable por cualquiera con escritura en `audit_log`
   (hash sin clave), `tenant_id` y `subject_id` quedaban fuera del prehash (cambiar de titular una fila no rompía la verificación) y los campos iban concatenados sin prefijo de longitud. Los tres están cerrados; ver "Added".
+- **La batería de Postgres no era re-ejecutable**: fallaba con `duplicate key` en la segunda ejecución porque asumía el contenedor limpio de CI. Ahora hace `DROP SCHEMA` / `CREATE SCHEMA` antes de migrar, así que un desarrollador puede correr los tests tantas veces como necesite.
 - H0: runtime Docker cambiado de distroless `cc` a `debian:12-slim` (ver ADR-0002).
 - H0: Postgres de desarrollo escucha en el puerto de host 5433 por defecto para no chocar con otros proyectos locales.
 - T1: `ci.yml` era **inválido**: `defaults.run.timeout-minutes` no existe en el esquema (GitHub creaba el run con 0 jobs). Timeouts por job, `concurrency` por ref, `totp-core` con umbral de cobertura del 90 % y los 12 SHAs re-verificados contra tags exactos con `git ls-remote`.

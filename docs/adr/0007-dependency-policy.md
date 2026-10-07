@@ -40,9 +40,38 @@ OpenSSL. Cuando el build FIPS entre, habrá que añadir `"OpenSSL"` (y quizá
 ADR se actualizará. No se añaden ahora para no abrir la lista de forma
 preventiva sin necessidade.
 
+## Dependencias internas: `[workspace.dependencies]` (2026-10-06)
+
+`bans.wildcards = "deny"` rechazaba las diez aristas internas del workspace: una
+dependencia declarada solo con `path` no expresa versión, y Cargo la resuelve
+como `*`. La regla existe para que un nombre mal escrito no se convierta en
+silenciosamente en otro crate; en una dependencia de un miembro del workspace el
+`path` es exacto y un error de nombre no compila, así que la regla no protegía
+nada aquí y solo impedía pasar el gate.
+
+Se **arregla la causa en lugar de relajar la regla**: las diez dependencias se
+declaran una vez en `[workspace.dependencies]` con `path` **y** `version`, y cada
+crate usa `{ workspace = true }`. Efectos secundarios favorables: el grafo se lee
+en un único sitio, y no queda el riesgo de que dos crates apunten a versiones
+distintas del mismo miembro.
+
+Consecuencia operativa: `[workspace.package].version` y las versiones de
+`[workspace.dependencies]` deben moverse juntas en cada release
+(`docs/RELEASING.md`).
+
+## Ampliación de `licenses.allow`: `CDLA-Permissive-2.0` (2026-10-06)
+
+`webpki-roots` (0.26 y 1.0, vía rustls dentro de sqlx) se publica bajo
+`CDLA-Permissive-2.0`, que `cargo deny` rechazaba. Es una licencia permisiva:
+exige atribución y limita la responsabilidad, sin copyleft ni restricción de
+campo de uso. No es opcional mientras la pila TLS siga sobre rustls, y
+`AGENTS.md` prohíbe `native-tls`/OpenSSL. Se añade con esta justificación, que es
+lo que la política exige para ampliar la lista.
+
 ## Nota sobre `just check` y el CI
 
 `just check` replica los jobs del CI en el mismo orden (fmt, clippy, test,
-msrv, coverage, deny, audit). `sdks` y `docker` quedan disponibles como
-recetas locales pero no forman parte del gate por defecto: requieren Node,
-Python y un daemon Docker.
+msrv, coverage, deny, audit) y **pasa completo** desde el 2026-10-06, con la
+batería de Postgres incluida (`BANDALL_TEST_PG`). `sdks` y `docker` quedan
+disponibles como recetas locales pero no forman parte del gate por defecto:
+requieren Node con *type stripping* nativo (>= 24) y un demonio Docker.

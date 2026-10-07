@@ -13,7 +13,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-bandall-api = { path = "../api" }
+bandall-api = { workspace = true }
 # Async runtime driving `bandall serve`.
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # CLI parsing (including env var defaults).

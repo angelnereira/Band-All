@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 # Pure rate-limit decision table shared with the API (T2).
-bandall-policy = { path = "../policy" }
+bandall-policy = { workspace = true }
 # Parse Postgres URLs to enforce TLS on remote hosts (ADR-0008 / T9.1).
 url = "2.5"
 # Unified Postgres + SQLite access with migrations.

@@ -7,6 +7,11 @@
   major y guía de migración.
 - Tags `vX.Y.Z` al cerrar cada hito; `CHANGELOG.md` (Keep a Changelog) es
   la fuente de novedades.
+- **Al subir la versión hay que editar dos sitios**: `version` en
+  `[workspace.package]` del `Cargo.toml` raíz **y** la `version` de las diez
+  entradas de `[workspace.dependencies]`. No se puede usar
+  `version.workspace = true` en una dependencia: Cargo lo rechaza. Basta con que
+  las dos listas coincidan; que no coincidan rompe la resolución de los miembros.
 
 ## Pipeline de release (H8, al publicar 0.9/1.0)
 

@@ -9,12 +9,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-bandall-totp-core = { path = "../totp-core" }
-bandall-vault = { path = "../vault" }
-bandall-store = { path = "../store" }
-bandall-tokens = { path = "../tokens" }
-bandall-policy = { path = "../policy" }
-bandall-sigs = { path = "../sigs" }
+bandall-totp-core = { workspace = true }
+bandall-vault = { workspace = true }
+bandall-store = { workspace = true }
+bandall-tokens = { workspace = true }
+bandall-policy = { workspace = true }
+bandall-sigs = { workspace = true }
 # HTTP: axum + tower middleware stack.
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net"] }

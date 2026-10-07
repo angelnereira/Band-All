@@ -30,7 +30,7 @@ cargo deny check && cargo audit
 docker build -f deploy/Dockerfile .
 docker compose -f deploy/compose/compose.yaml up --build
 ```
-Esta máquina ya tiene `cargo`/`rustc` 1.98.1 y `docker` 29.8.1. Si faltan `just`, `cargo-deny` o `cargo-audit`: `cargo install just cargo-deny cargo-audit --locked`. Nota: el usuario `droid` no está en el grupo `docker`; los comandos docker requieren `sudo` en esta máquina.
+Esta máquina ya tiene `cargo`/`rustc` 1.99.0 y las herramientas del gate (`just`, `cargo-deny`, `cargo-audit`, `cargo-llvm-cov`); la versión exacta la fija `rust-toolchain.toml`. Para la batería con Postgres **no hace falta Docker**: `initdb` corre como usuario normal (ver `docs/VERIFICATION.md` §Cómo reproducir). Nota: el demonio de Docker está parado y `sudo` pide contraseña, así que el build de la imagen y el compose requieren interacción.
 
 ## Docker (decidido: dev + tests + CI + prod)
 - Builder `rust` + cargo-chef → runtime `debian:12-slim` fijado por digest, usuario `nonroot` (uid 65532) creado en build, `ca-certificates` incluido. (ADR-0002: distroless `cc` queda diferido a H5 por un `libgcc_s` vacío en su variante arm64.)
