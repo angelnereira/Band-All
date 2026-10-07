@@ -33,7 +33,7 @@ docker compose -f deploy/compose/compose.yaml up --build
 Esta máquina ya tiene `cargo`/`rustc` 1.99.0 y las herramientas del gate (`just`, `cargo-deny`, `cargo-audit`, `cargo-llvm-cov`); la versión exacta la fija `rust-toolchain.toml`. Para la batería con Postgres **no hace falta Docker**: `initdb` corre como usuario normal (ver `docs/VERIFICATION.md` §Cómo reproducir). Nota: el demonio de Docker está parado y `sudo` pide contraseña, así que el build de la imagen y el compose requieren interacción.
 
 ## Docker (decidido: dev + tests + CI + prod)
-- Builder `rust` + cargo-chef → runtime `debian:12-slim` fijado por digest, usuario `nonroot` (uid 65532) creado en build, `ca-certificates` incluido. (ADR-0002: distroless `cc` queda diferido a H5 por un `libgcc_s` vacío en su variante arm64.)
+- Builder `rust:1.99-bookworm` + cargo-chef → runtime **distroless `cc-debian12:nonroot`** fijado por digest (ADR-0002, reevaluado en H5: el `libgcc_s` arm64 ya es un ELF sano). El runtime trae `ca-certificates` y el usuario `nonroot` (uid 65532); no hay shell ni curl: el healthcheck es el subcomando `bandall healthcheck`.
 - non-root, rootfs read-only, `cap_drop: [ALL]`, `no-new-privileges`, límites de recursos.
 - La imagen no tiene shell ni curl: el healthcheck es el subcomando `bandall healthcheck`.
 - Secretos vía docker secrets o archivo con permisos 0400; nunca horneados en la imagen ni en `.env` versionados.

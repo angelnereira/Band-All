@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 69450b6ca522998b7ff2197bbccaec15eaaca8d32839530a9efd77c37511daea # shrinks to base = 2355224441, delta = 190189, params = TotpParams { algorithm: Sha1, digits: 6, period: Period(30) }
+cc d30a4af3052e736a01b819c00fb48d01350b45870b8ddb4a99057a92982ee496 # shrinks to bytes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+cc 124e123d256b5868003d4f99ab0ba170ae11332055fefc98b3a48d693df8261e # shrinks to bytes = []
+cc c10e63f242950a2696c02a48b3c7f2d936b668867b063848575af6ea807d674d # shrinks to issuer = ":", account = "a", params = TotpParams { algorithm: Sha1, digits: 6, period: Period(30) }, secret_bytes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

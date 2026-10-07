@@ -23,3 +23,15 @@ getrandom = "0.2"
 data-encoding = "2"
 # Typed errors.
 thiserror = "2"
+
+[dev-dependencies]
+# Property tests for the parsers and the TOTP maths (H1, roadmap item 8):
+# these look for counterexamples the fixed RFC vectors cannot reach.
+proptest = "1"
+# Benchmarks of the hot paths (H1, roadmap item 8). `cargo bench` only: the
+# gate has no performance threshold, since measured SLOs are H8.
+criterion = "0.5"
+
+[[bench]]
+name = "hot_paths"
+harness = false

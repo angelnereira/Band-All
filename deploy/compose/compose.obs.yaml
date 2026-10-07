@@ -12,15 +12,33 @@ services:
       BANDALL_DATABASE_URL: sqlite:/data/bandall.db
       BANDALL_KMS_KEY_FILE: /run/secrets/bandall-kek
       BANDALL_AUDIT_KEY_FILE: /run/secrets/bandall-audit-key
-      BANDALL_SERVICE_KEY: ${BANDALL_SERVICE_KEY:-change-me-to-at-least-32-chars}
+      BANDALL_SERVICE_KEY: ${BANDALL_SERVICE_KEY:-demo-service-key-0123456789abcdef}
       RUST_LOG: bandall=info
     volumes:
       - ./obs-bandall.toml:/config/bandall.toml:ro
       - ./obs-kek.bin:/run/secrets/bandall-kek:ro
       - ./obs-audit-key.bin:/run/secrets/bandall-audit-key:ro
       - obsdata:/data
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 64m
     expose:
       - "8080"
+    # Same hardening as the demo (AGENTS.md §Docker): read-only rootfs, no
+    # capabilities, no privilege escalation, no core dumps in memory that holds
+    # unwrapped secrets.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
   prometheus:
     image: prom/prometheus:v3.1.0

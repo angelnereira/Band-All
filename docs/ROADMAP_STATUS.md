@@ -6,13 +6,13 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 
 | Hito | Código | Tests ejecutados | Gate | Estado |
 |---|---|---|---|---|
-| **H0** Cimientos | ✅ | ✅ (workspace completo: 103 tests) | ✅ | **cerrado** |
-| **H1** `totp-core` | ✅ | ✅ 19+1 en local (vectores RFC incluidos), **cobertura 93.95 % > 90 %** | ✅ | **cerrado** (falta fuzz en CI) |
-| **H2** Vault + store | ✅ | ✅ vault (8+1); store **SQLite y Postgres 18.6** (4 cada uno) | ⚠️ | **abierto** (solo falta CI verde) |
+| **H0** Cimientos | ✅ | ✅ (workspace completo: 110 tests) | ⚠️ | **abierto**: CI sin runner; `main` sin protección (PR/CI/firmas) |
+| **H1** `totp-core` | ✅ | ✅ 24 unit + 12 proptest + 1 doc; **fuzz 1 h × 4 targets sin crashes**; cobertura **93.95 %** | ✅ | **cerrado** (fuzz 1 h verificado con cargo-fuzz; falta CI solo como formalidad) |
+| **H2** Vault + store | ✅ | ✅ vault (8+1); store **SQLite y Postgres 18.6** (6 cada uno, incluida la batería at-rest) | ✅ | **cerrado** (en local; falta CI) |
 | **H3** API MFA | ✅ | ✅ 29 unit + 11 E2E | ✅ | **cerrado** (sujeto a CI verde) |
-| **H4** Tokens | ✅ | ✅ tokens (8); E2E de rotación verde, **con Postgres** | ⚠️ | **abierto** (solo falta CI) |
-| **H5** Hardening | ✅ | ✅ policy (8), sigs (4) y auditoría **con clave y append atómico** (T4), **con Postgres** | ⚠️ | **abierto** (solo falta CI) |
-| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK Python (5) y TS (5)**; demo sin levantar | ❌ | **abierto** (falta imagen y demo) |
+| **H4** Tokens | ✅ | ✅ tokens (8); E2E de rotación verde, **con Postgres** | ⚠️ | **abierto** (ítem 5 web: entregado como guía + ADR-0011, sin cookies en el servidor) |
+| **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h** | ⚠️ | **abierto** (distroless cerrado; falta CI, pentest y decisión de ADR-0009) |
+| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK Python (5) y TS (5)**; **demo forward-auth funcionando en Docker** | ⚠️ | **abierto** (demo ya levantada; SDKS Go/C# pendientes del alcance) |
 | **H7** App autenticadora | ⚠️ solo `authenticator-core` (6 ✅); UI nativa/UniFFI no empezada | ⚠️ | ❌ | **abierto** |
 | **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; SLOs medidos, DR, caos **no** | ❌ | ❌ | **abierto** |
 | **H9** Certificación | ❌ (pentest, WebAuthn, FIPS) | ❌ | ❌ | **no empezado** |

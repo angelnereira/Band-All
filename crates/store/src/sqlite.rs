@@ -27,8 +27,17 @@ pub struct SqliteStore {
 
 impl SqliteStore {
     /// Connects to `url` without running migrations.
+    ///
+    /// Creates the database file when it does not exist. Without this, a first
+    /// deployment on an empty volume fails to start: the documented config
+    /// (`sqlite:bandall.db`) and the H6 demo (`sqlite:/data/bandall.db`) both
+    /// point at a file that is not there yet. A missing *directory* still
+    /// fails, which is the case worth failing on: it means the mount or the
+    /// path is wrong.
     pub async fn connect(url: &str) -> Result<Self, Error> {
-        let options = SqliteConnectOptions::from_str(url)?.foreign_keys(true);
+        let options = SqliteConnectOptions::from_str(url)?
+            .create_if_missing(true)
+            .foreign_keys(true);
         Ok(Self {
             pool: SqlitePool::connect_with(options).await?,
         })
@@ -645,6 +654,41 @@ mod tests {
     use super::SqliteStore;
     use crate::tests_battery;
     use std::sync::Arc;
+
+    /// A first deployment points at a file that does not exist yet; refusing
+    /// to start there made the default config and the H6 demo fail on a fresh
+    /// volume.
+    #[tokio::test]
+    async fn connect_creates_a_missing_database_file() {
+        let path = std::env::temp_dir().join(format!(
+            "bandall-sqlite-create-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let url = format!("sqlite:{}", path.display());
+
+        let store = SqliteStore::connect(&url).await.unwrap();
+        store.migrate().await.unwrap();
+        assert!(path.exists(), "connect must create the database file");
+        tests_battery::full_cycle(&store).await.unwrap();
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A missing parent directory still fails: that is a wrong path or a wrong
+    /// mount, not a first run.
+    #[tokio::test]
+    async fn connect_refuses_a_missing_directory() {
+        let path = std::env::temp_dir()
+            .join(format!("bandall-no-such-dir-{}", std::process::id()))
+            .join("bandall.db");
+        let url = format!("sqlite:{}", path.display());
+        assert!(SqliteStore::connect(&url).await.is_err());
+    }
 
     #[tokio::test]
     async fn sqlite_battery() {

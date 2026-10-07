@@ -4,8 +4,9 @@
 - **Fecha:** 2026-10-05
 - **Decisores:** Angel Nereira
 - **Nota de numeración:** T10 (credencial primaria) tenía reservado el
-  `0009-primary-credential.md` en el brief; al llegar T3 antes, este ADR toma el
-  0009 y el de T10 pasa a ser `0010-primary-credential.md`.
+  `0009-primary-credential.md` en el brief. Al llegar T3 antes, este ADR tomó el
+  0009; T4 tomó el 0010, H4 el 0011, y el de T10 pasa a ser
+  `0012-primary-credential.md`.
 
 ## Contexto
 

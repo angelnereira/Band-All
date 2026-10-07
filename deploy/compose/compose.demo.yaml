@@ -28,20 +28,46 @@ services:
         condition: service_healthy
     environment:
       BANDALL_CONFIG: /config/bandall.toml
-      BANDALL_DATABASE_URL: postgres://bandall:${POSTGRES_PASSWORD:-bandall-dev-only}@postgres:5432/bandall
+      # The demo file declares `database = "sqlite"`: SQLite keeps the demo
+      # self-contained, and this override stays consistent with it. The
+      # adjacent Postgres container exists to mirror production wiring; a
+      # deployment that wants it must set `database = "postgres"` in the
+      # config file AND a TLS URL here (the store rejects clear-text remote
+      # connections).
+      BANDALL_DATABASE_URL: sqlite:/data/bandall.db
       BANDALL_KMS_KEY_FILE: /run/secrets/bandall-kek
       BANDALL_AUDIT_KEY_FILE: /run/secrets/bandall-audit-key
-      BANDALL_SERVICE_KEY: ${BANDALL_SERVICE_KEY:-change-me-to-at-least-32-chars}
+      BANDALL_SERVICE_KEY: ${BANDALL_SERVICE_KEY:-demo-service-key-0123456789abcdef}
       RUST_LOG: bandall=info
     volumes:
       - ./demo-bandall.toml:/config/bandall.toml:ro
       - ./demo-kek.bin:/run/secrets/bandall-kek:ro
       - ./demo-audit-key.bin:/run/secrets/bandall-audit-key:ro
       - demodata:/data
+      # SQLite needs a writable temp directory, and the rootfs is read-only.
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 64m
     expose:
       - "8080"
     networks:
       - demo
+    # Hardening from `AGENTS.md` §Docker. The image already runs as `nonroot`;
+    # these are the parts the runtime has to supply.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Core dumps off: a crash would otherwise write the process memory, which
+    # holds unwrapped TOTP secrets and the chain key, to the host filesystem.
+    ulimits:
+      core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
   legacy:
     image: nginx:alpine
