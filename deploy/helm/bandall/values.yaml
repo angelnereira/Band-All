@@ -15,6 +15,9 @@ config:
   tokenIssuer: bandall
   tokenAudience: bandall
 
+# Secret expected to hold `service-key`, the 32-byte KEK (`bandall-kek`) and
+# the 32-byte audit-chain key (`bandall-audit-key`, T4). Created outside this
+# chart; never from a values file in git.
 existingSecret: bandall-secrets
 
 resources:

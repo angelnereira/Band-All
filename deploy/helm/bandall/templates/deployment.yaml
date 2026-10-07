@@ -27,6 +27,8 @@ spec:
               value: {{ .Values.config.databaseUrl | quote }}
             - name: BANDALL_KMS_KEY_FILE
               value: /run/secrets/bandall-kek
+            - name: BANDALL_AUDIT_KEY_FILE
+              value: /run/secrets/bandall-audit-key
             - name: BANDALL_KEK_ID
               value: {{ .Values.config.kekId | quote }}
             - name: BANDALL_SERVICE_KEY

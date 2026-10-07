@@ -59,7 +59,7 @@ Alcance: servicio BandAll (`api`, `vault`, `tokens`, `policy`, `store`, `sigs`),
 |---|---|---|
 | 7.1 Errores genéricos al cliente | ✅ | RFC 7807 sin detalles internos |
 | 7.2 Sin secretos en logs | ✅ | Tipos con `Debug` redactado, sin `secret` en `tracing` |
-| 7.4 Auditoría de seguridad | ✅ | Log encadenado por hash + `bandall audit verify` |
+| 7.4 Auditoría de seguridad | ✅ | Log encadenado con HMAC y clave fuera de la DB (ADR-0010), append atómico, `bandall audit verify` (`crates/api/src/audit.rs`, `store/src/tests_battery.rs::audit_chain_concurrency`) |
 
 ## V8 Datos sensibles
 

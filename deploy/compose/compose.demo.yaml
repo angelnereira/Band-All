@@ -30,11 +30,13 @@ services:
       BANDALL_CONFIG: /config/bandall.toml
       BANDALL_DATABASE_URL: postgres://bandall:${POSTGRES_PASSWORD:-bandall-dev-only}@postgres:5432/bandall
       BANDALL_KMS_KEY_FILE: /run/secrets/bandall-kek
+      BANDALL_AUDIT_KEY_FILE: /run/secrets/bandall-audit-key
       BANDALL_SERVICE_KEY: ${BANDALL_SERVICE_KEY:-change-me-to-at-least-32-chars}
       RUST_LOG: bandall=info
     volumes:
       - ./demo-bandall.toml:/config/bandall.toml:ro
       - ./demo-kek.bin:/run/secrets/bandall-kek:ro
+      - ./demo-audit-key.bin:/run/secrets/bandall-audit-key:ro
       - demodata:/data
     expose:
       - "8080"

@@ -78,6 +78,9 @@ enum Command {
 #[derive(Debug, Subcommand)]
 enum AuditCommand {
     /// Verifies the hash chain, reporting the first bad sequence number.
+    ///
+    /// Keyed v2 rows need `audit_key_file` from the configuration; legacy v1
+    /// rows verify without it.
     Verify {
         /// Configuration file path.
         #[arg(long, env = "BANDALL_CONFIG", default_value = "bandall.toml")]
@@ -231,9 +234,21 @@ fn migrate(config_path: &std::path::Path) -> ExitCode {
 }
 
 /// Verifies the audit hash chain, exiting non-zero on the first bad entry.
+///
+/// Reads `audit_key_file` from the configuration: keyed v2 rows need it, while
+/// a log made only of legacy v1 rows verifies without one. A wrong or missing
+/// key therefore reports `BROKEN`, never a false pass.
 fn audit_verify(config_path: &std::path::Path, limit: i64) -> ExitCode {
     setup_logging();
     let config = load_config(config_path);
+    let chain =
+        match bandall_api::AuditChain::from_file(std::path::Path::new(&config.audit_key_file)) {
+            Ok(chain) => chain,
+            Err(e) => {
+                eprintln!("cannot load audit key: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build();
@@ -247,7 +262,7 @@ fn audit_verify(config_path: &std::path::Path, limit: i64) -> ExitCode {
     runtime.block_on(async {
         match bandall_api::server::build_state(&config).await {
             Ok((state, _)) => match state.store.list_audit(limit).await {
-                Ok(entries) => match bandall_api::audit::verify_chain(&entries) {
+                Ok(entries) => match bandall_api::audit::verify_chain(&entries, &chain) {
                     Ok(()) => {
                         println!("audit chain OK ({} entries)", entries.len());
                         ExitCode::SUCCESS
@@ -446,13 +461,36 @@ fn apikey_revoke(config_path: &std::path::Path, key_id: &str) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
-    use super::Command;
+    use super::{AuditCommand, Cli, Command};
     use clap::Parser;
+    use std::path::PathBuf;
 
     #[test]
     fn parses_serve_with_config() {
         let cli = Cli::parse_from(["bandall", "serve", "--config", "/tmp/x.toml"]);
         assert!(matches!(cli.command, Some(Command::Serve { .. })));
+    }
+
+    #[test]
+    fn parses_audit_verify_with_a_limit() {
+        // `bandall audit verify` takes the key from the configuration file, so
+        // the surface stays `--config` plus the row bound.
+        let cli = Cli::parse_from([
+            "bandall",
+            "audit",
+            "verify",
+            "--config",
+            "/tmp/x.toml",
+            "--limit",
+            "500",
+        ]);
+        let Some(Command::Audit {
+            command: AuditCommand::Verify { config, limit },
+        }) = cli.command
+        else {
+            panic!("expected `audit verify`");
+        };
+        assert_eq!(config, PathBuf::from("/tmp/x.toml"));
+        assert_eq!(limit, 500);
     }
 }

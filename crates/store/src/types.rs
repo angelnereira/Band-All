@@ -223,6 +223,52 @@ pub struct AuditEntry {
     pub prev_hash: Vec<u8>,
     /// Entry hash.
     pub hash: Vec<u8>,
+    /// Chain format that produced `hash`: `1` = legacy unkeyed SHA-256,
+    /// `2` = keyed HMAC-SHA-256 (see `NewAudit::CHAIN_V2`).
+    pub chain_version: i16,
+}
+
+/// An audit entry to append. The hash and `prev_hash` are **not** supplied by
+/// the caller: the store computes them inside the append transaction, so the
+/// chain cannot fork under concurrency.
+#[derive(Debug, Clone)]
+pub struct NewAudit {
+    /// Event time (Unix seconds).
+    pub ts: i64,
+    /// Acting tenant.
+    pub tenant_id: String,
+    /// Acting subject.
+    pub subject_id: String,
+    /// Event name (`mfa.verified`, ...).
+    pub event: String,
+    /// Chain format to write.
+    pub chain_version: i16,
+}
+
+impl NewAudit {
+    /// Keyed HMAC-SHA-256 chain (current format).
+    pub const CHAIN_V2: i16 = 2;
+    /// Legacy unkeyed SHA-256 chain, accepted for verification only.
+    pub const CHAIN_V1: i16 = 1;
+}
+
+/// Computes the chain link hash for one entry given the previous link.
+///
+/// Implemented by the caller (`bandall-api::audit::AuditChain`) so this crate
+/// stays free of key material and of crypto policy: the store only guarantees
+/// that the hash is derived from the real predecessor inside the transaction.
+pub trait AuditHasher: Send + Sync {
+    /// Returns the hash linking `prev_hash` to `entry`.
+    ///
+    /// Returning `Err` aborts the append: the transaction rolls back rather
+    /// than storing a row whose chain link cannot be verified.
+    fn link(&self, entry: &NewAudit, prev_hash: &[u8]) -> Result<Vec<u8>, Error>;
+}
+
+impl<T: AuditHasher + ?Sized> AuditHasher for std::sync::Arc<T> {
+    fn link(&self, entry: &NewAudit, prev_hash: &[u8]) -> Result<Vec<u8>, Error> {
+        (**self).link(entry, prev_hash)
+    }
 }
 /// New factor to insert.
 #[derive(Debug, Clone)]

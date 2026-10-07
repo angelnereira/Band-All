@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, http::HeaderMap};
 use bandall_api::{
-    AppState,
+    AppState, AuditChain,
+    audit::verify_chain,
     authz::{AuthzParams, check as authz_check},
     config::TrustedProxies,
     enroll::{EnrollConfirmRequest, EnrollStartRequest, confirm, start},
@@ -44,6 +45,7 @@ async fn setup() -> (AppState, String) {
     let vault = Arc::new(Vault::new(Arc::new(kms)));
     let keys = Arc::new(KeyManager::generate().unwrap());
     let policy = PolicyHandle::Memory(Arc::new(Policy::default()));
+    let audit = Arc::new(AuditChain::from_bytes([5u8; 32]));
     let trusted_proxies = Arc::new(TrustedProxies::default());
     let tenant = store.create_tenant("e2e", 1_700_000_000).await.unwrap();
     let state = AppState::new(
@@ -51,6 +53,7 @@ async fn setup() -> (AppState, String) {
         vault,
         keys,
         policy,
+        audit,
         trusted_proxies,
         ISSUER.to_string(),
         AUDIENCE.to_string(),
@@ -825,4 +828,68 @@ async fn drift_is_learned_and_wider_clocks_are_denied() {
         .unwrap()
         .unwrap();
     assert_eq!(after.drift(), 1);
+}
+
+/// T4: the audit log written by real requests verifies under the keyed chain,
+/// and editing a row (tenant, subject, event or timestamp) breaks it.
+///
+/// The unit tests in `bandall-api::audit` cover the hash itself; this one pins
+/// the wiring end to end, from `mfa_verify` down to the stored row.
+#[tokio::test]
+async fn audit_log_is_keyed_and_tamper_evident() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+
+    // One step ahead: enrolment already consumed the current step, so a code
+    // for it would be rejected as a replay rather than audited as a success.
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    let session = mfa_verify(
+        State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant.clone(),
+            subject_id: subject_id.clone(),
+            factor_id: factor_id.clone(),
+            code,
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(!session.0.access_token.is_empty());
+
+    let chain = AuditChain::from_bytes([5u8; 32]);
+    let entries = state.store.list_audit(100).await.unwrap();
+    assert!(!entries.is_empty(), "verification must be audited");
+    assert!(verify_chain(&entries, &chain).is_ok());
+
+    // Every row is keyed v2, not a legacy unkeyed hash.
+    for entry in &entries {
+        assert_eq!(entry.chain_version, 2);
+    }
+
+    // The v1 weakness was that tenant and subject sat outside the hash: the
+    // row must stop verifying when either is rewritten.
+    for field in ["tenant", "subject"] {
+        let mut tampered = entries.clone();
+        let target = tampered
+            .iter_mut()
+            .find(|e| e.event == "mfa.verified")
+            .expect("mfa.verified row");
+        if field == "tenant" {
+            target.tenant_id = "attacker-tenant".to_string();
+        } else {
+            target.subject_id = "attacker-subject".to_string();
+        }
+        let result = verify_chain(&tampered, &chain);
+        assert!(
+            result.is_err(),
+            "editing {field} left the chain verifying (v1 weakness)"
+        );
+    }
+
+    // And a different key cannot verify the same log.
+    let wrong_key = AuditChain::from_bytes([6u8; 32]);
+    assert!(verify_chain(&entries, &wrong_key).is_err());
 }

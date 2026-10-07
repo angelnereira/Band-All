@@ -9,11 +9,14 @@ use bandall_policy::{Decision, Limits};
 use crate::error::Error;
 use crate::store::{BoxFuture, Store};
 use crate::types::{
-    ApiClient, AuditEntry, Factor, NewApiClient, NewFactor, NewRefresh, RecoveryHash, RefreshEntry,
-    Session, Subject, Tenant,
+    ApiClient, AuditEntry, AuditHasher, Factor, NewApiClient, NewAudit, NewFactor, NewRefresh,
+    RecoveryHash, RefreshEntry, Session, Subject, Tenant,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
+
+/// Previous hash of the first entry in the chain (32 zero bytes).
+const GENESIS_HASH: [u8; 32] = [0u8; 32];
 
 /// Postgres-backed store.
 #[derive(Debug)]
@@ -437,53 +440,51 @@ impl Store for PgStore {
         })
     }
 
-    fn append_audit<'a>(
+    fn append_audit_chained<'a>(
         &'a self,
-        ts: i64,
-        tenant_id: &'a str,
-        subject_id: &'a str,
-        event: &'a str,
-        prev_hash: &'a [u8],
-        hash: &'a [u8],
+        entry: NewAudit,
+        hasher: &'a dyn AuditHasher,
     ) -> BoxFuture<'a, Result<(), Error>> {
-        let entry = (
-            ts,
-            tenant_id.to_string(),
-            subject_id.to_string(),
-            event.to_string(),
-            prev_hash.to_vec(),
-            hash.to_vec(),
-        );
         Box::pin(async move {
+            let mut tx = self.pool.begin().await?;
+            // One global advisory lock (not per tenant): the audit chain is a
+            // single sequence, so two appends must never read the same tip.
             sqlx::query(
-                "INSERT INTO audit_log (ts, tenant_id, subject_id, event, prev_hash, hash) VALUES ($1, $2, $3, $4, $5, $6)",
+                "SELECT pg_advisory_xact_lock(hashtextextended('bandall.audit.chain', 0::bigint))",
             )
-            .bind(entry.0)
-            .bind(&entry.1)
-            .bind(&entry.2)
-            .bind(&entry.3)
-            .bind(&entry.4)
-            .bind(&entry.5)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
-            Ok(())
-        })
-    }
-
-    fn last_audit_hash(&self) -> BoxFuture<'_, Result<Option<Vec<u8>>, Error>> {
-        Box::pin(async move {
-            let row: Option<(Vec<u8>,)> =
+            let prev: Option<(Vec<u8>,)> =
                 sqlx::query_as("SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1")
-                    .fetch_optional(&self.pool)
+                    .fetch_optional(&mut *tx)
                     .await?;
-            Ok(row.map(|r| r.0))
+            let prev_hash = prev
+                .map(|row| row.0)
+                .unwrap_or_else(|| GENESIS_HASH.to_vec());
+            // Computed inside the transaction: the lock is still held, so the
+            // link cannot be chained from a tip another writer just replaced.
+            let hash = hasher.link(&entry, &prev_hash)?;
+            sqlx::query(
+                "INSERT INTO audit_log (ts, tenant_id, subject_id, event, prev_hash, hash, chain_version) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(entry.ts)
+            .bind(&entry.tenant_id)
+            .bind(&entry.subject_id)
+            .bind(&entry.event)
+            .bind(&prev_hash)
+            .bind(&hash)
+            .bind(entry.chain_version)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(())
         })
     }
 
     fn list_audit(&self, limit: i64) -> BoxFuture<'_, Result<Vec<AuditEntry>, Error>> {
         Box::pin(async move {
             let rows = sqlx::query_as::<_, AuditEntry>(
-                "SELECT seq, ts, tenant_id, subject_id, event, prev_hash, hash FROM audit_log ORDER BY seq ASC LIMIT $1",
+                "SELECT seq, ts, tenant_id, subject_id, event, prev_hash, hash, chain_version FROM audit_log ORDER BY seq ASC LIMIT $1",
             )
             .bind(limit)
             .fetch_all(&self.pool)
@@ -658,6 +659,7 @@ mod tests {
     use super::PgStore;
     use crate::error::Error;
     use crate::tests_battery;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn rejects_clear_text_remote() {
@@ -695,5 +697,8 @@ mod tests {
         store.migrate().await.unwrap();
         tests_battery::full_cycle(&store).await.unwrap();
         tests_battery::auth_failures(&store).await.unwrap();
+        tests_battery::audit_chain_concurrency(&Arc::new(store))
+            .await
+            .unwrap();
     }
 }

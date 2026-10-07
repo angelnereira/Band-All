@@ -1,6 +1,6 @@
 # Estado de verificación y entorno de desarrollo
 
-Actualizado: 2026-10-05 (ejecución completa del workspace). Lee esto antes de
+Actualizado: 2026-10-06 (T4, cadena de auditoría con clave). Lee esto antes de
 fiarte de "verde" o de "funciona".
 
 ## Qué está verificado y qué no
@@ -15,27 +15,37 @@ fiarte de "verde" o de "funciona".
 | `authenticator-core` (cuentas, backup cifrado) | 6 | **verde local** |
 | `sdk-axum` (Layer) | 2 | **verde local** |
 | `cli` | 1 | **verde local** |
-| `store` (batería completa en **SQLite**) | 4 | **verde local** |
+| `store` (batería completa en **SQLite**, incluida la ráfaga de 50 appends encadenados) | 4 | **verde local** |
 | `store` (batería contra **Postgres real**) | misma batería | **sin ejecutar** (sin `BANDALL_TEST_PG`) |
-| `api` (unit) | 11 | **verde local** |
-| `api` (E2E: ciclo MFA, carrera de 100, ráfaga 20→5, vecindad de tenant, rotación, firmas, forward-auth) | 9 | **verde local** |
+| `api` (unit, incl. cadena de auditoría: tenant/subject/event/ts alterados, clave errónea, filas v1 y mezcla v1+v2) | 29 | **verde local** |
+| `api` (E2E: ciclo MFA, carrera de 100, ráfaga 20→5, vecindad de tenant, rotación, firmas, forward-auth, deriva, auditoría encadenada) | 11 | **verde local** |
+| `cli` (parsing de `audit verify --limit`) | 2 | **verde local** |
 | SDK TS / Python (vectores compartidos) | node/unittest | **sin ejecutar** |
 | `cargo deny` / `cargo audit` / cobertura / fuzz | — | **sin ejecutar** (herramientas ausentes) |
 
-**Total en esta ejecución: 82 tests + doctests, 0 fallos.**
+**Total en esta ejecución: 103 tests + doctests, 0 fallos.**
 
-## Ejecución completa (2026-10-05, host nuevo)
+## Ejecución completa (2026-10-06, host x86_64)
 
 ```bash
-CARGO_BUILD_JOBS=1 cargo test --workspace --offline      # 82 verdes
-CARGO_BUILD_JOBS=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --locked                          # 103 verdes
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo fmt --all -- --check
 ```
 
-Entorno: Android/proot (`aarch64-unknown-linux-gnu`, rustc 1.98.1) con ~3 GB
-disponibles, de ahí `-j 1`. **No hay** `docker`, `just`, `cargo-deny` ni
-`cargo-audit`: la imagen, la batería Postgres y `just check` siguen sin poder
-ejecutarse aquí.
+Entorno: Linux x86_64, `rustc`/`cargo` 1.99, 12 núcleos, 30 GB. El runaway de
+memoria y los `ICE` de enlace del host Android/proot anterior **no se
+reproducen**. Sigue **sin** `docker` (el demonio está parado y `sudo` pide
+contraseña), `just`, `cargo-deny` ni `cargo-audit`: la batería contra Postgres
+real, la imagen, `deny`/`audit`, cobertura y fuzz no pueden ejecutarse aquí.
+
+### T4: qué verifica la batería de la cadena de auditoría
+
+`store/src/tests_battery.rs::audit_chain_concurrency` lanza 50 appends
+concurrentes y exige una cadena lineal. Comprobado que **detecta** el defecto:
+al mover la lectura del tip fuera de la transacción (el comportamiento v1) el
+test falla con `fork or gap at row 1`. El caso de **Postgres** (misma batería,
+`pg_advisory_xact_lock`) sigue sin ejecutarse aquí.
 
 ### Defectos de `main` que destapó esta ejecución
 
@@ -57,6 +67,14 @@ anterior fallaba al enlazar:
    ganador" era inalcanzable.
 
 Los cinco están corregidos en la rama de T2 (ver `CHANGELOG.md`).
+
+### Defectos de la auditoría que corrigió T4
+
+La cadena v1 (`SHA256(prev ‖ event ‖ ts)`, sin clave y sin `tenant`/`subject`)
+era recalculable por cualquiera con escritura en `audit_log`, y cambiar el
+titular de una fila no la rompía. Cerrado con HMAC-SHA-256 sobre registro
+framing (ADR-0010) y append atómico; los tests negativos están en
+`api/src/audit.rs` y en el E2E `audit_log_is_keyed_and_tamper_evident`.
 
 ## Host anterior (histórico)
 
