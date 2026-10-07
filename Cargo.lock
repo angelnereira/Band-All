@@ -261,6 +261,9 @@ name = "bandall-store"
 version = "0.1.0"
 dependencies = [
  "bandall-policy",
+ "bandall-totp-core",
+ "bandall-vault",
+ "secrecy",
  "sqlx",
  "thiserror",
  "tokio",

@@ -21,3 +21,13 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 uuid = { version = "1", features = ["v4"] }
 # Typed errors.
 thiserror = "2"
+
+[dev-dependencies]
+# Modo embebido (H6): el ejemplo `embedded` junta la matemática pura con la
+# persistencia SQLite y el cifrado en reposo, sin red ni HTTP.
+bandall-totp-core = { workspace = true }
+bandall-vault = { workspace = true }
+# Ejemplo embebido: leer el plaintext abierto (SecretBox) con el trait de
+# `secrecy` (ya es dependencia transitiva del vault; se declara aquí porque el
+# ejemplo lo usa directamente).
+secrecy = "0.10"

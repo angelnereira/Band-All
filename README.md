@@ -38,7 +38,7 @@ crates/api                  Servicio HTTP (axum), errores RFC 7807
 crates/sdk-axum             Layer/guard para verificación offline
 crates/authenticator-core   Lógica de la app autenticadora offline
 crates/cli                  Binario `bandall`
-sdks/{ts,python}            SDKs finos sobre vectores de conformidad
+sdks/{ts,python,go,csharp}    SDKs finos sobre vectores de conformidad
 deploy/                     Dockerfile, compose (dev/demo/obs), chart Helm
 tests/load                  Perfil de carga k6
 ```

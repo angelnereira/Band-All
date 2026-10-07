@@ -62,9 +62,19 @@ sdks:
     node_major=$(node --version | sed -E 's/^v([0-9]+)\..*/\1/')
     if [ "$node_major" -lt 24 ] || ! node -e 'process.features.typescript' 2>/dev/null; then
         echo "SKIP: sdks/ts (node $(node --version) has no native type stripping; CI pins 24)" >&2
-        exit 0
+    else
+        (cd sdks/ts && node --test test/vectors.test.ts)
     fi
-    (cd sdks/ts && node --test test/vectors.test.ts)
+
+    # Go SDK: offline JWT + HMAC, same conformance vectors.
+    (cd sdks/go && go test ./...)
+
+    # C# SDK: offline JWT (Ed25519 via BouncyCastle) + HMAC, same vectors.
+    if command -v dotnet >/dev/null 2>&1; then
+        (cd sdks/csharp && dotnet test tests/BandAll.Tests/BandAll.Tests.csproj)
+    else
+        echo "SKIP: sdks/csharp (dotnet not installed)" >&2
+    fi
 
 docker-build:
     docker build -f deploy/Dockerfile -t bandall:dev .
