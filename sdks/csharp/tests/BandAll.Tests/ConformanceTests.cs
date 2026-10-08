@@ -26,11 +26,23 @@ public sealed class ConformanceTests
         throw new FileNotFoundException("no se encuentran los vectores compartidos");
     }
 
+    // ADR-0015: the vectors are a versioned contract.
+    private const int SchemaVersion = 1;
+
     private static readonly JsonObject vectors =
         JsonNode.Parse(File.ReadAllText(FindVectors()))!.AsObject();
 
+    private static void CheckSchema()
+    {
+        var version = (int?)vectors["schema_version"]
+            ?? throw new FileNotFoundException("vectors.json sin schema_version");
+        if (version != SchemaVersion)
+            throw new InvalidDataException($"vectores versión {version}, este SDK implementa {SchemaVersion}");
+    }
+
     private static Jwks LoadJwks()
     {
+        CheckSchema();
         var keys = vectors["jwt"]!["jwks"]!["keys"]!.AsArray()
             .Select(k => new Jwk(
                 (string)k!["kty"]!, (string)k["crv"]!, (string)k["kid"]!, (string)k["use"]!, (string)k["x"]!))

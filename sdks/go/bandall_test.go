@@ -9,8 +9,12 @@ import (
 	"testing"
 )
 
+// ADR-0015: the vectors are a versioned contract.
+const schemaVersion = 1
+
 type vectors struct {
-	NowSecs int64 `json:"now_secs"`
+	SchemaVersion int   `json:"schema_version"`
+	NowSecs       int64 `json:"now_secs"`
 	JWT     struct {
 		JWKS     JWKS   `json:"jwks"`
 		Issuer   string `json:"issuer"`
@@ -43,6 +47,9 @@ func loadVectors(t *testing.T) *vectors {
 	var v vectors
 	if err := json.Unmarshal(raw, &v); err != nil {
 		t.Fatalf("vectores inválidos: %v", err)
+	}
+	if v.SchemaVersion != schemaVersion {
+		t.Fatalf("vectores versión %d, este SDK implementa %d", v.SchemaVersion, schemaVersion)
 	}
 	return &v
 }

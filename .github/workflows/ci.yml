@@ -160,7 +160,7 @@ jobs:
   docker:
     name: docker image
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -169,5 +169,12 @@ jobs:
           context: .
           file: deploy/Dockerfile
           push: false
+          tags: bandall:verify
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Building the image is not the same as the image working. This step runs
+      # the artifact: startup, the MFA journey, the security defences, the HMAC
+      # signatures and the audit chain after a deliberate tamper.
+      - name: verify the built container
+        run: tests/container/verify.sh --postgres --skip-build

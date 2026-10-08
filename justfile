@@ -43,6 +43,23 @@ audit:
     # and never apply.
     cargo audit --deny warnings --ignore RUSTSEC-2023-0071
 
+# Package the project into a container and verify the artifact: runtime shape,
+# configuration, the MFA journey, the security defences, the HMAC signatures
+# and the audit chain. Requires a running Docker daemon.
+#
+#   just verify-container              # SQLite in a throwaway volume
+#   just verify-container postgres     # same suite against Postgres over TLS
+#   just verify-container bench        # plus simulated load (SLO baseline)
+#
+# Everything it creates dies with the run; nothing it needs survives it.
+#   just verify-container              # SQLite in a throwaway volume
+#   just verify-container postgres     # same suite against Postgres over TLS
+#   just verify-container bench        # plus simulated load (SLO baseline)
+#
+# Everything it creates dies with the run; nothing it needs survives it.
+verify-container *ARGS:
+    @tests/container/verify.sh {{ARGS}}
+
 # CI-only jobs, exposed locally for convenience.
 sdks:
     #!/usr/bin/env bash

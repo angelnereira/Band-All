@@ -4,6 +4,7 @@ resolver = "3"
 members = [
     "crates/api",
     "crates/authenticator-core",
+    "crates/embedded",
     "crates/cli",
     "crates/policy",
     "crates/sdk-axum",
@@ -37,6 +38,7 @@ publish = false
 bandall-api = { path = "crates/api", version = "0.1.0" }
 bandall-authenticator-core = { path = "crates/authenticator-core", version = "0.1.0" }
 bandall-cli = { path = "crates/cli", version = "0.1.0" }
+bandall-embedded = { path = "crates/embedded", version = "0.1.0" }
 bandall-policy = { path = "crates/policy", version = "0.1.0" }
 bandall-sdk-axum = { path = "crates/sdk-axum", version = "0.1.0" }
 bandall-sigs = { path = "crates/sigs", version = "0.1.0" }

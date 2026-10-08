@@ -94,6 +94,30 @@ y envía `X-Signature: v1=<hex>` + `X-Key-Id`, `X-Timestamp`, `X-Nonce`.
 El servidor valida en `POST /v1/sigs/verify` (tolerancia ±5 min, nonce de un
 solo uso, comparación constante).
 
+## 3bis. Verificación offline dentro de tu servicio Rust (`sdk-axum`)
+
+Dos modos (ADR-0013), ambos con JWKS **en caché** y fallo-cerrado:
+
+```rust
+use bandall_sdk_axum::{RequireScopes, RequireToken};
+
+// Modo remoto: tu servicio valida contra el JWKS de BandAll (caché 5 min).
+let layer = RequireToken::with_jwks(
+    "https://bandall/.well-known/jwks.json",
+    "bandall".into(), "my-app".into(), 1,
+    std::time::Duration::from_secs(300),
+);
+// Opcionalmente exige scopes exactos del token:
+let scopes = RequireScopes::new(vec!["mfa:verify".into()]);
+
+// Modo local/embebido: el KeyManager compartido en el mismo proceso.
+let layer = RequireToken::with_keys(keys, "bandall".into(), "my-app".into(), 1);
+```
+
+El handler lee `Extension<Claims>` (incluido `scp`). Si el endpoint de JWKS no
+responde y la caché está vacía, la petición se **deniega** (401), nunca se
+abre.
+
 ## 4. SDKs finos y modo embebido
 
 Cuatro SDKs pasan los **mismos vectores de conformidad** (`sdks/conformance/vectors.json`):
@@ -107,14 +131,24 @@ el job `sdks` de CI igual (Node 24, Python 3.13, Go 1.25, .NET 8).
 | Go (`sdks/go`) | `bandall.VerifyJWT(jwks, token, iss, aud, now)` | `bandall.Sign`/`VerifySignature` | `go test ./...` |
 | C# (`sdks/csharp`) | `BandAll.Jwt.Verify(jwks, token, iss, aud, now)` | `BandAll.Hmac.*` | `dotnet test` |
 
-**Modo embebido**: si BandAll se integra como librería (sin HTTP), el ejemplo
-`crates/store/examples/embedded.rs` muestra el ciclo completo en un binario
-único: enrula con el secreto cifrado en SQLite, verifica un código con el
-antirreplay atómico y rechaza el replay. Ejecutarlo:
+**Modo embebido**: `bandall-embedded` (ADR-0014) expone la fachada enroll →
+confirm → verify → delete para integrar BandAll como librería, con el secreto
+cifrado en SQLite (la KEK la aporta el integrador), antirreplay atómico y
+deriva acotada — sin red ni HTTP:
 
-```sh
-cargo run -p bandall-store --example embedded
+```rust
+use bandall_embedded::Embedded;
+
+let embedded = Embedded::sqlite_path("/data/bandall.db", kek).await?;
+let tenant = embedded.create_tenant("acme").await?;
+let enrolled = embedded.enroll(&tenant, "alice", "BandAll", "alice@example.com").await?;
+// QR: enrolled.otpauth_uri; códigos de recuperación: tras `confirm`.
+let codes = embedded.confirm(&tenant, "alice", &enrolled.factor_id, &code, now).await?;
+embedded.verify(&tenant, "alice", &enrolled.factor_id, &next, now).await?;
 ```
+
+Ver con el ejemplo completo: `cargo run -p bandall-embedded --example embedded`
+(y su batería en `crates/embedded/tests/battery.rs`).
 
 ## Notas de producción
 

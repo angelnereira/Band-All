@@ -2,7 +2,7 @@
 
 Fuente: `BANDALL_ROADMAP.md` §3 y `docs/VERIFICATION.md`. Regla del repo: un
 hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
-2026-10-06.**
+2026-10-07.**
 
 | Hito | Código | Tests ejecutados | Gate | Estado |
 |---|---|---|---|---|
@@ -11,10 +11,10 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | **H2** Vault + store | ✅ | ✅ vault (8+1); store **SQLite y Postgres 18.6** (6 cada uno, incluida la batería at-rest) | ✅ | **cerrado** (en local; falta CI) |
 | **H3** API MFA | ✅ | ✅ 29 unit + 11 E2E | ✅ | **cerrado** (sujeto a CI verde) |
 | **H4** Tokens | ✅ | ✅ tokens (8); E2E de rotación verde, **con Postgres** | ⚠️ | **abierto** (ítem 5 web: entregado como guía + ADR-0011, sin cookies en el servidor) |
-| **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h** | ⚠️ | **abierto** (distroless cerrado; falta CI, pentest y decisión de ADR-0009) |
-| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (ejemplo `store/examples/embedded.rs`: enrola y verifica offline con antirreplay) | ⚠️ | **abierto** (ítem 2 `sdk-axum`: exigir `scopes` choca con el modelo de claims de ADR-0005, que no lleva scopes en el JWT — ∎ decisión humana) |
+| **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h**; **cadena con clave verificada en el contenedor**: verde y BROKEN tras alterar una fila | ⚠️ | **abierto** (falta CI, pentest y decisión de ADR-0009) |
+| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (`bandall-embedded`, ADR-0014), **45 tests funcionales + 16 de firmas HMAC contra el contenedor**, scopes y JWKS remoto (ADR-0013) | ⚠️ | **abierto** (ADR-0013 resuelve el choque de scopes; falta CI y el gate de la demo legacy levantado desde cero) |
 | **H7** App autenticadora | ⚠️ solo `authenticator-core` (6 ✅); UI nativa/UniFFI no empezada | ⚠️ | ❌ | **abierto** |
-| **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; SLOs medidos, DR, caos **no** | ❌ | ❌ | **abierto** |
+| **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; **SLOs medidos en contenedor sí** (ver §Verificación del contenedor); DR y caos **no** | ⚠️ | ❌ | **abierto** |
 | **H9** Certificación | ❌ (pentest, WebAuthn, FIPS) | ❌ | ❌ | **no empezado** |
 
 ## Bloqueos que impiden cerrar H2–H6
@@ -27,12 +27,48 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
    started because your account is locked due to a billing issue"* sigue siendo
    la causa a resolver; no es un defecto del workflow. GitGuardian sí pasa (no
    usa runners de Actions).
-2. **Sin demonio de Docker en esta máquina**: no se puede construir la imagen ni
-   levantar el compose. `sudo` pide contraseña y sin interacción no hay forma de
-   arrancarlo. Esto ya **no bloquea la batería**: `initdb` corre como usuario
-   normal, así que hay un cluster Postgres 18.6 propio (ver
-   `docs/VERIFICATION.md` §Cómo reproducir). Lo que sigue pendiente aquí: build
-   de la imagen, demo forward-auth y fuzz.
+2. ~~Sin demonio de Docker en esta máquina~~ **resuelto el 2026-10-07**: Docker
+   Desktop 4.94.0 está disponible y operativo. El build de la imagen, el
+   arranque, la batería funcional y de seguridad, la demo forward-auth y la
+   carga simulada se ejecutan hoy contra el contenedor real
+   (`tests/container/`, ver §Verificación del contenedor).
+
+## Verificación del contenedor (2026-10-07)
+
+Nuevo: `tests/container/verify.sh` empaqueta el proyecto y verifica **el
+artefacto**, no el árbol de fuentes. Resultado de la ronda, en las dos
+configuraciones de base de datos:
+
+| Comprobación | SQLite | Postgres (TLS) |
+|---|---|---|
+| Build de la imagen (distroless, 53.9 MB) | ✅ | ✅ |
+| `nonroot:nonroot`, sin shell, HEALTHCHECK propio | ✅ | ✅ |
+| Fail-closed de configuración (2 casos) | ✅ | ✅ |
+| `migrate` + `serve` + `/readyz` + `healthcheck` | ✅ | ✅ |
+| Hardening en runtime (read-only, `cap_drop`, core=0) | ✅ | ✅ |
+| Suite funcional y de seguridad (**45 tests**) | ✅ | ✅ |
+| Firmas HMAC (**16 tests**) | ✅ | ✅ |
+| Sin secretos ni pánicos en los logs | ✅ | ✅ |
+| Cadena de auditoría: verde, y BROKEN tras alterar una fila | ✅ | ✅ |
+
+Carga simulada (`--bench`, clientes mock desechables, p50/p95/p99 medidos):
+
+| Fase | p50 | p95 | p99 | rps |
+|---|---|---|---|---|
+| `/v1/verify` secuencial | 93 ms | 161 ms | 206 ms | 10 |
+| `/v1/verify` 10 clientes | 62 ms | 71 ms | 74 ms | 159 |
+| `/v1/verify` 50 clientes | 223 ms | 260 ms | 265 ms | 213 |
+| rechazo 401 (sin throttling) | 46 ms | 56 ms | 80 ms | 445 |
+| `/v1/authz/check` | 26 ms | 49 ms | 59 ms | 474 |
+
+Números de una máquina de escritorio con Docker Desktop y un límite de 1 CPU /
+512 MB impuesto al contenedor; son la línea base de H8, no un objetivo de
+producción. `bench-results.json` (ignorado por git) guarda el detalle.
+
+Lo que la batería encontró y era defecto **del arnés**, no del servicio: el
+confirm de enrolamiento consume el paso que acepta, así que confirmar con el
+código del paso actual convertía toda verificación posterior en replay
+—comportamiento correcto del servidor, cliente equivocado.
 
 ## Orden de desbloqueo
 
@@ -41,9 +77,8 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 2. `policy_backend = "database"` (ADR-0008) de T2 **verificado contra Postgres
    real** en esta ronda (batería completa, incluidas la reserva atómica y la
    ráfaga de 50 appends encadenados).
-3. Build de la imagen y demo forward-auth (requiere el demonio de Docker) y fuzz
-   de los parsers de `totp-core`.
-4. Con eso, cerrar H2→H6 en orden y abrir H7 UI / H8 DR.
+3. Fuzz de los parsers de `totp-core` contra el contenedor ya construido.
+4. Cerrar H2→H6 en orden y abrir H7 UI / H8 DR.
 
 ## Remediación de la revisión de seguridad (`docs/AGENT_BRIEF.md`)
 
