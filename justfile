@@ -52,13 +52,20 @@ audit:
 #   just verify-container bench        # plus simulated load (SLO baseline)
 #
 # Everything it creates dies with the run; nothing it needs survives it.
-#   just verify-container              # SQLite in a throwaway volume
-#   just verify-container postgres     # same suite against Postgres over TLS
-#   just verify-container bench        # plus simulated load (SLO baseline)
-#
-# Everything it creates dies with the run; nothing it needs survives it.
 verify-container *ARGS:
     @tests/container/verify.sh {{ARGS}}
+
+# Verify the end-user app: analyze, the Rust core tests, the Dart tests
+# (including the offline proof) and the release APK, which is checked for the
+# absent network permission and for the bundled Rust library. Requires the
+# toolchain from tests/mobile/install_toolchain.sh.
+verify-app:
+    @tests/mobile/verify_app.sh
+
+# Regenerate the Dart bindings after changing `apps/authenticator/rust/src/api.rs`.
+# The generated files are committed, so this is only needed when the API changes.
+mobile-generate:
+    cd apps/authenticator && flutter_rust_bridge_codegen generate
 
 # CI-only jobs, exposed locally for convenience.
 sdks:

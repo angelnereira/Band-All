@@ -1,0 +1,46 @@
+[package]
+# Underscores, not dashes, and that is load-bearing: cargokit derives the
+# artifact name it looks for from the *package* name verbatim
+# (`lib$packageName.so`), while cargo normalises dashes to underscores when it
+# names the library. A package called `bandall-authenticator-ffi` produces
+# `libbandall_authenticator_ffi.so`, cargokit looks for
+# `libbandall-authenticator-ffi.so`, does not find it, copies nothing and
+# **succeeds** — the APK builds without the Rust library and fails at first
+# call. See `rust_builder/cargokit/build_tool/lib/src/artifacts_provider.dart`.
+name = "bandall_authenticator_ffi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Deliberately outside the workspace: this crate exists only to be called from
+# Dart through flutter_rust_bridge, it links a platform toolchain, and nothing
+# in the workspace should depend on it. `bandall-authenticator-core` stays a
+# pure Rust library with no platform bindings (ADR-0016).
+[workspace]
+
+[lib]
+# `cdylib` for the Android/iOS dynamic library, `staticlib` for iOS's static
+# linking, `rlib` so `cargo test` can use it like any other crate.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[lints.rust]
+# `deny`, not `forbid`: `forbid` cannot be overridden, and the generated FFI
+# glue needs one explicit, named exception (see `src/lib.rs`).
+unsafe_code = "deny"
+# `flutter_rust_bridge`'s attribute macro expands to `cfg(frb_expand)` branches
+# that only exist inside the code generator. Without this declaration the
+# compiler (rightly) flags the cfg as a typo, and `clippy -D warnings` fails on
+# code nobody wrote.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[dependencies]
+bandall-authenticator-core = { path = "../../../crates/authenticator-core" }
+# Pinned to the exact version the codegen binary must match: `frb` generates
+# code from this crate's signatures and a mismatch between the two produces
+# bindings that compile but are wrong.
+flutter_rust_bridge = "=2.13.0"
+
+[dev-dependencies]
+# The bridge is tested from Rust too: a Dart-only test cannot catch a mistake
+# in the glue that only appears once `frb` has transformed the signature.
+tempfile = "3"
