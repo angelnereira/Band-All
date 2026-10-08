@@ -54,6 +54,13 @@ impl SqliteStore {
         })
     }
 
+    /// The underlying pool, for tests and maintenance that must inspect or
+    /// alter the schema directly.
+    #[must_use]
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
     /// Runs pending migrations.
     pub async fn migrate(&self) -> Result<(), Error> {
         MIGRATOR.run(&self.pool).await?;
@@ -265,7 +272,13 @@ impl Store for SqliteStore {
 
     fn health(&self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            sqlx::query("SELECT 1").execute(&self.pool).await?;
+            // A table the service cannot work without, not `SELECT 1`: the
+            // database answers a constant query with success even when every
+            // table has been dropped, which is exactly the state readiness
+            // must refuse to advertise (the H8 restore rehearsal found this).
+            sqlx::query("SELECT 1 FROM factors LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?;
             Ok(())
         })
     }
@@ -652,6 +665,7 @@ async fn reserve(
 #[cfg(test)]
 mod tests {
     use super::SqliteStore;
+    use crate::store::Store;
     use crate::tests_battery;
     use std::sync::Arc;
 
@@ -699,5 +713,30 @@ mod tests {
         tests_battery::audit_chain_concurrency(&Arc::new(store))
             .await
             .unwrap();
+    }
+
+    /// Readiness must refuse a database whose schema is gone.
+    ///
+    /// `SELECT 1` answers happily in an empty database, so a readiness probe
+    /// built on it advertises a service that cannot answer anything. Found by
+    /// the H8 restore rehearsal, which dropped the schema under a running
+    /// service and watched `/readyz` keep returning 200.
+    #[tokio::test]
+    async fn health_fails_once_the_schema_is_gone() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        store.migrate().await.unwrap();
+        Store::health(&store)
+            .await
+            .expect("a migrated store is healthy");
+
+        sqlx::query("DROP TABLE factors")
+            .execute(store.pool())
+            .await
+            .unwrap();
+
+        assert!(
+            Store::health(&store).await.is_err(),
+            "readiness must fail when the tables it needs are missing"
+        );
     }
 }
