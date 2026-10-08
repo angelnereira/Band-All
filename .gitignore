@@ -5,6 +5,9 @@
 
 __pycache__/
 *.pyc
+# Measurements from tests/container/bench_container.py: per-machine numbers,
+# not a property of the code.
+bench-results.json
 # Local-only demo secrets (never commit the real files).
 deploy/compose/demo-kek.bin
 deploy/compose/demo-audit-key.bin
