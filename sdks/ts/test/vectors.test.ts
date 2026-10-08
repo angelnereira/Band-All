@@ -7,9 +7,19 @@ import { fileURLToPath } from "node:url";
 import { verifyJwt } from "../src/jwt.js";
 import { canonical, sign, verifySignature } from "../src/hmac.js";
 
+// Adr-0015: the vectors are a versioned contract. Bump this when the shape
+// of the file changes, and update every SDK at the same time.
+const SCHEMA_VERSION = 1;
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const vectors = JSON.parse(readFileSync(join(root, "conformance", "vectors.json"), "utf8"));
 const { now_secs: NOW, jwt, hmac } = vectors;
+
+describe("schema", () => {
+  it("vectors are the version this SDK implements", () => {
+    assert.equal(vectors.schema_version, SCHEMA_VERSION);
+  });
+});
 
 describe("jwt", () => {
   const options = { issuer: jwt.issuer, audience: jwt.audience, nowSecs: NOW };

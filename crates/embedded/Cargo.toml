@@ -1,0 +1,28 @@
+[package]
+name = "bandall-embedded"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Facha embebida (ADR-0014): la misma matemática, el mismo cifrado y el mismo
+# antirreplay que el servicio, sin red ni HTTP. El flujo de dependencias va
+# del embebido hacia el núcleo, nunca al revés.
+bandall-totp-core = { workspace = true }
+bandall-vault = { workspace = true }
+bandall-store = { workspace = true }
+# Lectura del plaintext abierto (SecretBox) con el trait de `secrecy`.
+secrecy = "0.10"
+# Typed errors.
+thiserror = "2"
+
+[dev-dependencies]
+# El ejemplo `embedded` genera códigos TOTP para demostrar el ciclo completo
+# sin red; el `no_run` de estos dos usos no forma parte del API publico.
+bandall-totp-core = { workspace = true }
+secrecy = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

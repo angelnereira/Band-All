@@ -13,7 +13,13 @@ bandall-tokens = { workspace = true }
 # HTTP types and middleware primitives.
 axum = "0.8"
 tower = { version = "0.5", features = ["util"] }
+# Remote verification (ADR-0013): fetch `/.well-known/jwks.json` with a cache.
+# rustls backend, same crypto stack as the rest of the workspace (only
+# RustCrypto / rustls / aws-lc; never OpenSSL).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# Cache lock in the JWKS verifier (async mutex).
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 # Async test runtime.
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

@@ -7,10 +7,18 @@ from pathlib import Path
 from bandall_sdk.hmac import SignRequest, canonical, sign, verify_signature
 from bandall_sdk.jwt import verify_jwt
 
+# ADR-0015: the vectors are a versioned contract.
+SCHEMA_VERSION = 1
+
 VECTORS = json.loads(Path(__file__).resolve().parent.parent.parent.joinpath("conformance", "vectors.json").read_text())
 NOW = VECTORS["now_secs"]
 JWT = VECTORS["jwt"]
 HMAC_V = VECTORS["hmac"]
+
+
+class SchemaTest(unittest.TestCase):
+    def test_vectors_are_the_version_this_sdk_implements(self):
+        self.assertEqual(VECTORS["schema_version"], SCHEMA_VERSION)
 
 
 class JwtTest(unittest.TestCase):
