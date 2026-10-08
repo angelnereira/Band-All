@@ -1,0 +1,18 @@
+[package]
+name = "bandall-sdk-grpc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bandall-tokens = { workspace = true }
+# `tonic` is the standard gRPC server/client runtime for tokio, and it is the
+# only sanctioned way to get per-RPC metadata into a handler. Justification is
+# required by `AGENTS.md` before adding dependencies: this crate exists to put
+# BandAll's token verification in front of a gRPC service, and the alternative
+# (hand-rolling the HTTP/2 + protobuf transport) is not a serious option.
+tonic = "0.12"

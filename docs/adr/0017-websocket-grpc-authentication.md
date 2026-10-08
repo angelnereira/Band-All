@@ -1,6 +1,7 @@
 # ADR-0017: Autenticación en conexiones largas (WebSocket y gRPC)
 
-- **Estado:** propuesto — **esperando decisión humana**
+- **Estado:** aceptado (decisión humana el 2026-10-08: A + B, ticket de
+  conexión, TTL atado a `exp` y re-validación con presupuesto)
 - **Fecha:** 2026-10-07
 - **Decisores:** Angel Nereira
 - **Responde a:** requisito de producto (BandAll como capa de autenticación en WebSocket y gRPC)
@@ -86,33 +87,40 @@ Para WebSocket, el servidor de la aplicación protegida usa `bandall-sdk-axum`
 (el handshake **sí** es HTTP y sí puede llevar `Authorization`), y el ticket
 cubre el caso del navegador.
 
-## Decisión pendiente
+## Decisión (2026-10-08)
 
-Este ADR **no decide**: expone las opciones porque afectan al modelo de amenazas
-y a la semántica de "revocación", y eso requiere revisión explícita
-(`AGENTS.md` §Proceso).
+Aprobada la propuesta A + B íntegra:
 
-Lo que propongo, para que se apruebe o se corrija:
+1. **Ticket de conexión** para WebSocket, implementado como
+   `POST /v1/ws/ticket` (el cliente cambia su access token por un ticket
+   opaco de un solo uso, 30 s) y `POST /v1/ws/ticket/redeem` (S2S: el
+   servicio lo canjea al abrir la conexión y recibe identidad + el techo
+   duro de vida de la conexión, tomado de `exp` del token). El navegador
+   nunca pone el token en una URL.
+2. **TTL de conexión atado a `exp`** (el servicio protegido debe cerrar la
+   conexión en `expires_at`, que `redeem` devuelve) más **re-validación
+   opcional** con `POST /v1/ws/ticket/recheck` (S2S, uniforme 401 ante
+   sesión revocada o desconocida). El presupuesto de consultas del
+   re-check es del llamante; el endpoint entra en `policy` (tenant key) y
+   en auditoría (eventos `ws.ticket_*`).
+3. **Interceptor `tonic`** implementado en `bandall-sdk-grpc` (crate
+   nuevo): valida `authorization: Bearer` en metadatos, verifica contra
+   JWKS (estático o en caché) y responde `UNAUTHENTICATED` uniforme;
+   falla **cerrado** cuando el documento no es alcanzable. Estampa los
+   claims y el techo `exp` en las extensiones de cada petición.
+4. Todo entra en la batería de tests: unidad (tokens, store, sdk-grpc),
+   E2E (`ws_ticket_e2e`) y contenedor (`TestWsTickets`, 5 tests).
 
-1. **Ticket de conexión** para WebSocket (resuelve la pregunta 1 sin filtrar
-   tokens por URL).
-2. **TTL de conexión** atado a `exp` más **re-validación** opcional con
-   presupuesto (resuelve la pregunta 2 sin elegir C).
-3. **Interceptor `tonic`** en crate propio para gRPC, con `authorization` en
-   metadatos.
-4. El **ticket** y la **re-validación** entran en `policy` (rate limit) y en la
-   auditoría como eventos propios, porque son superficie nueva.
+## Consecuencias
 
-## Consecuencias si se aprueba
-
-- Superficie nueva en `bandall-api` (ticket), en `policy` (presupuesto de
-  re-validación) y dos crates/sdks nuevos. **Toca `tokens` y `vault`** (el
-  ticket se sella como el resto de secretos), así que necesita revisión humana
-  explícita antes de tocar código.
-- El modelo de amenazas gana la fila "conexión larga sobrevive a la revocación"
-  con su control y su prueba.
-- gRPC añade `tonic` al workspace: dependencia nueva que hay que justificar y
-  que `cargo deny`/`cargo audit` deben aceptar.
+- Superficie nueva en `bandall-api` (ticket, redeem, recheck), una tabla
+  nueva en ambos motores (`ws_tickets`, migración 8, claim atómico por
+  `UPDATE … WHERE used_at IS NULL`) y un crate nuevo (`bandall-sdk-grpc`)
+  con `tonic` como dependencia justificada: es el transporte gRPC estándar
+  y la única vía sancionada para leer metadatos por RPC.
+- El modelo de amenazas gana la fila "conexión larga sobrevive a la
+  revocación" con su control (`recheck` niega tras revocar) y su prueba.
+- `cargo deny`/`cargo audit` aceptan el árbol con `tonic` (verificado).
 
 ## Alternativas consideradas
 

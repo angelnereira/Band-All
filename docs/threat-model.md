@@ -45,6 +45,7 @@ H6/H7.
 | Elevation of privilege | Sesión revocada | Seguir usando un access token válido tras revocar | `authz/check` consulta la sesión viva en DB | `forward_auth_allows_and_denies` (e2e) |
 | Elevation of privilege | S2S | Llamar a un endpoint S2S sin scope | Scopes por cliente; `x-service-key` solo en desarrollo | `authz::tests`, `hmac_signature_round_trip` |
 | Elevation of privilege | Host | Escapar del contenedor | no-root, rootfs read-only, `cap_drop: ALL`, `no-new-privileges`, límites de recursos | `deploy/compose/*.yaml`, Helm `securityContext` |
+| Elevation of privilege | Conexión larga (WS/gRPC) | Seguir recibiendo datos tras revocar la sesión | Ticket de conexión de un solo uso (30 s) + re-validación: `recheck` niega sesiones revocadas; techo de conexión atado a `exp` | `ws_ticket_e2e` (3), `TestWsTickets` (5), `sdk-grpc` (5) |
 <!-- markdownlint-enable MD013 -->
 
 ## Brechas conocidas (v0)

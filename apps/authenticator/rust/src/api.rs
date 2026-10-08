@@ -10,9 +10,6 @@
 
 use bandall_authenticator_core::accounts::{Account, AccountSnapshot, clock_skew};
 use bandall_authenticator_core::{Algorithm, backup};
-// The attribute macro the code generator reads. It has to be in scope in every
-// file that uses it; without this the crate does not compile at all, which is
-// how the Android build found it.
 use flutter_rust_bridge::frb;
 
 /// One account as the UI sees it: everything needed to draw a row and generate

@@ -21,6 +21,8 @@ pub mod types;
 
 #[cfg(test)]
 pub(crate) mod tests_battery;
+#[cfg(test)]
+pub(crate) mod tests_battery_ws;
 
 pub use error::Error;
 pub use postgres::PgStore;
@@ -28,5 +30,6 @@ pub use sqlite::SqliteStore;
 pub use store::Store;
 pub use types::{
     ApiClient, AuditEntry, AuditHasher, Factor, NewApiClient, NewAudit, NewFactor, NewRefresh,
-    RecoveryHash, RefreshEntry, Session, Subject, Tenant, new_factor_id, new_session_id,
+    NewWsTicket, RecoveryHash, RefreshEntry, Session, Subject, Tenant, WsTicketEntry,
+    new_factor_id, new_session_id,
 };

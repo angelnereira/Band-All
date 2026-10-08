@@ -15,7 +15,7 @@ use bandall_policy::{Decision, Limits};
 use crate::error::Error;
 use crate::types::{
     ApiClient, AuditEntry, AuditHasher, Factor, NewApiClient, NewAudit, NewFactor, NewRefresh,
-    RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    NewWsTicket, RecoveryHash, RefreshEntry, Session, Subject, Tenant, WsTicketEntry,
 };
 
 /// Boxed future shorthand for trait methods.
@@ -208,4 +208,19 @@ pub trait Store: Send + Sync {
         key_id: &'a str,
         now_secs: i64,
     ) -> BoxFuture<'a, Result<(), Error>>;
+
+    /// Persists a WebSocket connection ticket (hash only).
+    fn store_ws_ticket(&self, entry: NewWsTicket) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Atomically claims a WebSocket ticket by hash (ADR-0017).
+    ///
+    /// The claim is a single `UPDATE … WHERE used_at IS NULL` inside a
+    /// transaction, so the same ticket can be redeemed exactly once under
+    /// concurrency. The caller checks `expires_at` afterwards; claiming a
+    /// spent or never-issued ticket returns `None`.
+    fn claim_ws_ticket<'a>(
+        &'a self,
+        hash: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<Option<WsTicketEntry>, Error>>;
 }

@@ -6,6 +6,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ### Added
 
+- **Conexiones largas** (ADR-0017): ticket de WebSocket de un solo uso (`POST /v1/ws/ticket` 30 s, `POST /v1/ws/ticket/redeem` S2S, `POST /v1/ws/ticket/recheck` S2S), tabla `ws_tickets` con claim atómico (`UPDATE … WHERE used_at IS NULL`, migración 8), techo de conexión atado a `exp` del token, y el crate nuevo `bandall-sdk-grpc` — interceptor `tonic` que valida `authorization: Bearer` contra JWKS y responde `UNAUTHENTICATED` uniforme, con fallo-cerrado cuando el documento es inalcanzable. Eventos de auditoría `ws.ticket_*`. Probado en unidad (5), E2E (3) y contenedor (5).
 - T4: **cadena de auditoría con clave** (ADR-0010, migración 7). HMAC-SHA-256 sobre un registro con prefijo de longitud que cubre versión, `ts`, `tenant_id`, `subject_id`, `event` y `prev_hash`; clave de 32 B en `audit_key_file` (obligatoria, `0600`) fuera de la base de datos; `bandall audit verify` la usa. El append pasa a `Store::append_audit_chained`, una transacción que lee el tip bajo bloqueo y calcula el enlace dentro, así que dos escritores ya no pueden bifurcar la cadena. `chain_version` permite verificar filas v1 y v2 en el mismo log. Postgres revoca `UPDATE`/`DELETE`/`TRUNCATE` sobre `audit_log` a `PUBLIC` y al rol `bandall_app` cuando existe.
 - H0: workspace Cargo con los crates `bandall-*`, lints de seguridad, CI (fmt, clippy, tests, MSRV, cargo-deny, cargo-audit, cobertura y build de imagen).
 - Docker: imagen distroless no-root y stack de desarrollo con Postgres 16.

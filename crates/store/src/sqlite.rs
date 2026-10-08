@@ -11,7 +11,7 @@ use crate::error::Error;
 use crate::store::{BoxFuture, Store};
 use crate::types::{
     ApiClient, AuditEntry, AuditHasher, Factor, NewApiClient, NewAudit, NewFactor, NewRefresh,
-    RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    NewWsTicket, RecoveryHash, RefreshEntry, Session, Subject, Tenant, WsTicketEntry,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
@@ -428,6 +428,44 @@ impl Store for SqliteStore {
         })
     }
 
+    fn store_ws_ticket(&self, entry: NewWsTicket) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO ws_tickets (code_hash, session_id, tenant_id, subject_id, access_expires_at, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(entry.code_hash)
+            .bind(entry.session_id)
+            .bind(entry.tenant_id)
+            .bind(entry.subject_id)
+            .bind(entry.access_expires_at)
+            .bind(entry.created_at)
+            .bind(entry.expires_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn claim_ws_ticket<'a>(
+        &'a self,
+        hash: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<Option<WsTicketEntry>, Error>> {
+        Box::pin(async move {
+            // One atomic statement: whoever marks `used_at` first wins, and the
+            // winner comes back with everything the redeemer needs. A spent or
+            // unknown ticket is simply absent.
+            let entry = sqlx::query_as::<_, WsTicketEntry>(
+                "UPDATE ws_tickets SET used_at = ? WHERE code_hash = ? AND used_at IS NULL RETURNING code_hash, session_id, tenant_id, subject_id, access_expires_at, created_at, expires_at, used_at",
+            )
+            .bind(now_secs)
+            .bind(hash)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(entry)
+        })
+    }
+
     fn revoke_family<'a>(
         &'a self,
         family_id: &'a str,
@@ -713,6 +751,14 @@ mod tests {
         tests_battery::audit_chain_concurrency(&Arc::new(store))
             .await
             .unwrap();
+    }
+
+    /// The ticket battery, against SQLite (ADR-0017).
+    #[tokio::test]
+    async fn sqlite_ws_tickets_battery() {
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        store.migrate().await.unwrap();
+        crate::tests_battery_ws::ws_tickets(&store).await.unwrap();
     }
 
     /// Readiness must refuse a database whose schema is gone.

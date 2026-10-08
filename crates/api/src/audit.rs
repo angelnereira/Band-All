@@ -74,6 +74,12 @@ pub mod event {
     pub const RECOVERY_USED: &str = "recovery.used";
     /// Recovery denied.
     pub const RECOVERY_DENIED: &str = "recovery.denied";
+    /// WebSocket connection ticket issued (ADR-0017).
+    pub const WS_TICKET_ISSUED: &str = "ws.ticket_issued";
+    /// WebSocket connection ticket redeemed (single claim).
+    pub const WS_TICKET_REDEEMED: &str = "ws.ticket_redeemed";
+    /// WebSocket connection ticket redeem denied (unknown or spent).
+    pub const WS_TICKET_DENIED: &str = "ws.ticket_denied";
 }
 
 /// The audit-chain key. Holds the 32 raw bytes in a `SecretBox` (zeroed on
