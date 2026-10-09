@@ -71,6 +71,11 @@ verify-app:
 verify-chaos:
     @tests/ops/chaos_drill.sh
 
+# Rollback rehearsal (H8 production checklist:"reversión probada").
+# Needs a running Docker daemon.
+verify-rollback:
+    @tests/ops/rehearse_rollback.sh
+
 # DR rehearsal: backup, destroy, restore, idempotent migrate, audit chain
 # verify and a real login. Needs a running Docker daemon.
 verify-dr:
