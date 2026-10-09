@@ -136,6 +136,30 @@ Lo que el ensayo encontró y no era del stack, sino **mío**:
 Detalle en [`docs/runbooks/chaos.md`](docs/runbooks/chaos.md), que incluye una
 tabla de qué hacer cuando cada alerta dispare.
 
+## Verificación de la reversión (2026-10-09)
+
+`tests/ops/rehearse_rollback.sh`, 6/6 en verde. Tres cosas que el ensayo
+encontró y que ninguna inspección previa había visto:
+
+1. **Revertir el binario no revierte el esquema.** `serve` migra al arrancar
+   (`crates/api/src/server.rs`) y sqlx se niega a ejecutar un migrador sobre un
+   esquema con migraciones que no reconoce — **aunque sean puramente aditivas**.
+   El binario viejo no arranca sobre el esquema que dejó la migración nueva. El
+   ensayo lo intenta a propósito y registra el resultado en lugar de dar por
+   supuesto el procedimiento fácil.
+2. **El procedimiento que funciona es restaurar un savepoint previo.** Y descarta
+   lo escrito después: una migración hacia adelante es, en la práctica, una
+   puerta de una sola dirección. El savepoint tiene que tomarse justo antes.
+3. **Un fichero SQLite restaurado queda `root:root`** si lo copia un contenedor
+   que corre como root, y el servicio corre como `nonroot` (65532): lo lee, no
+   lo escribe, y responde 500 en cada insert. El ensayo de DR ya hacía el
+   `chown` equivalente con el material de claves.
+
+Procedimiento, coste y la decisión que queda abierta (tolerar esquemas más
+nuevos con `set_ignore_missing` de sqlx, que es un intercambio entre tiempo de
+recuperación y certeza sobre los datos) en
+[`docs/runbooks/rollback.md`](docs/runbooks/rollback.md).
+
 ## Orden de desbloqueo
 
 1. Resolver la facturación de GitHub (o correr el gate en otra máquina) →

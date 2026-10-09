@@ -53,7 +53,7 @@ así que los runners de Actions no arrancan nunca (los jobs se crean y mueren en
 | **H5** Hardening | ✅ verificado (fail-closed, endurecimiento de runtime, cadena de auditoría) |
 | **H6** SDKs, JWKS, contenedor, DR | ✅ verificado (50 tests contra la imagen; ensayo de DR con RTO 37 s) |
 | **H7** App autenticadora | ✅ código completo; ⚠️ falta dispositivo real e iOS |
-| **H8** Operaciones | ✅ ensayo de DR ejecutado; ⚠️ falta ensayo de caos y alertas probadas |
+| **H8** Operaciones | ✅ DR ensayado, caos ensayado, reversión ensayada; ⚠️ falta revisión cruzada de los runbooks y un destino real de entrega de alertas |
 | **H9** Pentest, WebAuthn, FIPS, docs públicas | ❌ no empezado |
 
 El detalle por hito está en [`docs/ROADMAP_STATUS.md`](docs/ROADMAP_STATUS.md);
@@ -540,6 +540,7 @@ just check            # gate completo = CI: fmt + clippy + tests + deny + audit
 | **E2E de API** | flujo MFA completo con vault y store reales | `crates/api/tests/` |
 | **Artefacto de contenedor** | 50 tests funcionales + 16 de firmas contra **la imagen** | `tests/container/verify.sh` |
 | **Artefacto de la app** | analyze + clippy + tests + APK release + aserciones de empaquetado | `tests/mobile/verify_app.sh` |
+| **Reversión** | dos versiones reales, savepoint, forward, rollback documentado, auditoría, forward otra vez | `tests/ops/rehearse_rollback.sh` |
 | **App Dart** | 52 tests, incluida la prueba de que funciona sin red | `flutter test` |
 
 Comprobaciones que la experiencia ha demostrado que valen:
@@ -558,6 +559,8 @@ Comprobaciones que la experiencia ha demostrado que valen:
 tests/container/verify.sh            # 50 tests contra la imagen
 tests/container/verify.sh --bench    # + medición de carga
 tests/dr/rehearse_restore.sh         # backup → destruir → restaurar → login real
+tests/ops/rehearse_rollback.sh       # forward, reversión documentada, auditoría, forward
+tests/ops/chaos_drill.sh             # alertas cargadas, disparadas, entregadas y resueltas
 just verify-app                      # el ciclo completo de la app
 cargo test -p bandall-totp-core      # un crate
 ```
@@ -602,9 +605,11 @@ Concreto, y sin adornos. Ordenado por lo que bloquea más.
     implementado a propósito**. El formato es protobuf no documentado y no hay
     ningún fixture real contra el que verificar un parser. Se decide cuando haya
     uno.
-13. **Alertas y ensayos de caos** (H8): el DR está ensayado; comprobar que el
-    KMS caído deniega y que las alertas disparan de verdad requiere un entorno
-    que obscurezca los avisos.
+13. **Los tres ensayos de H8 están hechos** (backup→restaurar, caos con
+    alertas disparadas y entregadas, y reversión con savepoint). Lo que queda
+    del hito no es código: que otra persona revise los runbooks, y que las
+    alertas tengan un destino de entrega real —hoy el receptor está **vacío a
+    propósito**, para no fingir que alertan.
 14. **Linux y web de escritorio** para la app: falta toolchain de Flutter
     (clang/cmake/GTK3) y no hay `sudo` en esta máquina.
 
@@ -624,7 +629,7 @@ Concreto, y sin adornos. Ordenado por lo que bloquea más.
 | [`docs/masvs-review.md`](docs/masvs-review.md) | Autoevaluación OWASP MASVS (app móvil) |
 | [`docs/guides-forward-auth.md`](docs/guides-forward-auth.md) | nginx, Envoy, Traefik, SDKs y firmas |
 | [`docs/guides-web-and-mobile-sessions.md`](docs/guides-web-and-mobile-sessions.md) | Sesiones web y móvil |
-| [`docs/runbooks/`](docs/runbooks) | Fuga de secretos, revocación, rotación, restauración |
+| [`docs/runbooks/`](docs/runbooks) | Fuga de secretos, revocación, rotación, restauración, **caos** y **reversión** |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | SemVer y pipeline de release |
 | [`docs/adr/`](docs/adr) | 16 decisiones de diseño, con su porqué (0012 reservada) |
 
