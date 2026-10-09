@@ -19,6 +19,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'src/account_store.dart';
 import 'src/biometric_gate.dart';
 import 'src/bridge.dart';
+import 'src/clock.dart';
 import 'src/repository.dart';
 import 'src/rust_bridge.dart';
 
@@ -90,10 +91,25 @@ class AccountListScreen extends StatefulWidget {
 class _AccountListScreenState extends State<AccountListScreen> {
   Timer? _ticker;
 
-  /// A fixed instant, advanced by the ticker, so the whole screen is a pure
-  /// function of the time it is given. Reading `DateTime.now()` inside build
-  /// would make the tests depend on the wall clock.
-  int _now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  /// Codes follow this clock, not the wall clock.
+  ///
+  /// Anchored once at construction and advanced from a monotonic stopwatch, so
+  /// an NTP correction or a timezone change in the middle of the session does
+  /// not change every visible code while the user is reading one. The anchor is
+  /// still the wall clock at launch, which is exactly what the clock warning is
+  /// about: see [ClockCheckSheet].
+  final MonotonicClock _clock = MonotonicClock();
+
+  /// The time the UI is rendered at, advanced by the ticker, so the whole screen
+  /// is a pure function of the time it is given.
+  late int _now = _clock.nowSecs();
+
+  /// When the user last reported that a code was accepted at this wall-clock
+  /// time elsewhere. Session-scoped: persisting "correct time" across a reboot
+  /// would claim a knowledge of elapsed time that an offline app cannot have.
+  int? _referenceUnixSecs;
+
+  SkewWarning _clockWarning = SkewWarning.unknown;
 
   bool _loaded = false;
 
@@ -118,7 +134,7 @@ class _AccountListScreenState extends State<AccountListScreen> {
     // at a step boundary.
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        setState(() => _now = DateTime.now().millisecondsSinceEpoch ~/ 1000);
+        setState(() => _now = _clock.nowSecs());
       }
     });
   }
@@ -174,6 +190,16 @@ class _AccountListScreenState extends State<AccountListScreen> {
         title: const Text('BandAll Authenticator'),
         actions: [
           IconButton(
+            key: const Key('clock-check'),
+            icon: Icon(
+              _clockWarning == SkewWarning.drifted
+                  ? Icons.warning_amber
+                  : Icons.schedule,
+            ),
+            tooltip: 'Clock check',
+            onPressed: _openClockCheck,
+          ),
+          IconButton(
             key: const Key('add-account'),
             icon: const Icon(Icons.add),
             tooltip: 'Add account',
@@ -184,6 +210,11 @@ class _AccountListScreenState extends State<AccountListScreen> {
       body: Column(
         children: [
           if (storageProblem != null) const _StorageWarning(),
+          // Only a *known* drift interrupts the list. "Unknown" is the normal
+          // state for an offline app and belongs in the clock sheet, not as a
+          // permanent banner nobody can clear.
+          if (_clockWarning == SkewWarning.drifted)
+            _ClockDriftBanner(onOpen: _openClockCheck),
           if (total > 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -223,6 +254,25 @@ class _AccountListScreenState extends State<AccountListScreen> {
   Future<void> _delete(Account account) async {
     await widget.repository.remove(account);
     if (mounted) setState(() {});
+  }
+
+  /// Opens the clock sheet and adopts whatever verdict it comes back with.
+  Future<void> _openClockCheck() async {
+    final result = await showModalBottomSheet<ClockCheckResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ClockCheckSheet(
+        repository: widget.repository,
+        nowSecs: _clock.nowSecs(),
+        referenceUnixSecs: _referenceUnixSecs,
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _referenceUnixSecs = result.referenceUnixSecs;
+        _clockWarning = result.warning;
+      });
+    }
   }
 
   Future<void> _openAddSheet(BuildContext context) async {
@@ -276,6 +326,180 @@ class _StorageWarning extends StatelessWidget {
                 color: Theme.of(context).colorScheme.onErrorContainer,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The clock-drift banner, shown only when the drift is known to be bad.
+///
+/// Amber rather than red, and paired with a button: the fix is in the phone's
+/// settings, not in this app, so the banner has to point somewhere.
+class _ClockDriftBanner extends StatelessWidget {
+  const _ClockDriftBanner({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      color: scheme.tertiaryContainer,
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber, color: scheme.onTertiaryContainer),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              SkewWarning.drifted.text!,
+              key: const Key('clock-drift-warning'),
+              style: TextStyle(color: scheme.onTertiaryContainer),
+            ),
+          ),
+          TextButton(
+            key: const Key('clock-drift-open'),
+            onPressed: onOpen,
+            child: const Text('Details'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Asks the user for the one thing only they can supply.
+///
+/// The app has no network permission, so it cannot ask a server what time it
+/// is, and an offline app cannot measure how much true time passed while it
+/// was closed. What it can do is compare this device's clock against a moment
+/// the user knows a code was accepted — anywhere, in any authenticator — and
+/// report the difference. That is the honest form of the H7 clock warning; the
+/// alternative, a green light that means "no news", would be worse.
+class ClockCheckSheet extends StatefulWidget {
+  const ClockCheckSheet({
+    super.key,
+    required this.repository,
+    required this.nowSecs,
+    this.referenceUnixSecs,
+  });
+
+  final AuthenticatorRepository repository;
+  final int nowSecs;
+  final int? referenceUnixSecs;
+
+  @override
+  State<ClockCheckSheet> createState() => _ClockCheckSheetState();
+}
+
+class _ClockCheckSheetState extends State<ClockCheckSheet> {
+  late final TextEditingController _reference = TextEditingController(
+    text: widget.referenceUnixSecs == null
+        ? ''
+        : formatWallClock(widget.referenceUnixSecs!),
+  );
+
+  String? _error;
+  ClockCheckResult? _result;
+
+  @override
+  void dispose() {
+    _reference.dispose();
+    super.dispose();
+  }
+
+  /// Compares the device clock against the reported reference.
+  ///
+  /// The comparison is the Rust core's, not the UI's: the threshold that
+  /// decides whether a code will be rejected lives with the TOTP
+  /// implementation, where the step is known.
+  void _check() {
+    final raw = _reference.text.trim();
+    final reference = raw.isEmpty ? null : referenceFromWallClock(raw);
+    if (raw.isNotEmpty && reference == null) {
+      setState(() {
+        _error = 'Write the time as HH:MM, for example 14:32.';
+        _result = null;
+      });
+      return;
+    }
+    setState(() {
+      _error = null;
+      _result = ClockCheckResult(
+        warning: widget.repository.clockWarning(
+          nowSecs: MonotonicClock.wallClockSecs(),
+          referenceUnixSecs: reference,
+        ),
+        referenceUnixSecs: reference,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Clock check', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'This device reads ${formatWallClock(widget.nowSecs)}.',
+            key: const Key('clock-device-time'),
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _reference,
+            decoration: const InputDecoration(
+              labelText: 'Time a code was accepted elsewhere',
+              helperText: 'Any service, in any authenticator. Today, HH:MM.',
+              prefixIcon: Icon(Icons.schedule),
+            ),
+            keyboardType: TextInputType.datetime,
+            autocorrect: false,
+            enableSuggestions: false,
+            key: const Key('field-reference'),
+            onChanged: (_) => setState(() => _error = null),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              key: const Key('clock-error'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+          const SizedBox(height: 16),
+          FilledButton(
+            key: const Key('clock-check-submit'),
+            onPressed: _check,
+            child: const Text('Check'),
+          ),
+          if (result != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              result.warning.text ?? 'Your clock looks right.',
+              key: const Key('clock-verdict'),
+              style: result.warning == SkewWarning.drifted
+                  ? TextStyle(color: Theme.of(context).colorScheme.error)
+                  : Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(result),
+            child: const Text('Close'),
           ),
         ],
       ),

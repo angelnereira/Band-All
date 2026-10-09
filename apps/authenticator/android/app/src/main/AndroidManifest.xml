@@ -6,6 +6,15 @@
     <!-- Not required: the app must stay installable on a device without a
          camera, where the setup link and manual entry still work. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- No cloud backup, no device-to-device transfer (H7, item 6).
+         `allowBackup="false"` alone is not enough on Android 12+, where the
+         platform can still copy app data to a new phone; `dataExtractionRules`
+         is the rule set that actually governs both cloud backup and transfer,
+         and the two XML files below exclude everything it covers. The stored
+         account blob is encrypted by the Keystore, so a copy would be useless
+         without the device key — but "useless ciphertext uploaded to someone
+         else's cloud" is not a posture worth having, and the user has an
+         export path that asks for a passphrase and biometrics first. -->
     <!-- The app is 100% offline (ADR-0016). Declaring no INTERNET permission
          is stronger than promising not to use the network: Android enforces
          it, and a dependency that tries to phone home fails rather than
@@ -24,7 +33,10 @@
     <application
         android:label="BandAll Authenticator"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

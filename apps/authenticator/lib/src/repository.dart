@@ -8,6 +8,7 @@ library;
 import 'bridge.dart';
 import 'account_store.dart';
 import 'biometric_gate.dart';
+import 'clock.dart';
 
 /// What the UI renders for one account.
 class AccountRow {
@@ -162,6 +163,20 @@ class AuthenticatorRepository {
   /// Clock-drift verdict against a reference time (the server's, when known).
   ClockSkew skewAgainst(int referenceSecs, int deviceSecs) =>
       _bridge.skew(deviceSecs: deviceSecs, referenceSecs: referenceSecs);
+
+  /// The drift verdict the UI shows.
+  ///
+  /// `referenceUnixSecs` is the instant the user reported a code was accepted
+  /// somewhere else; `null` is the normal case and yields
+  /// [SkewWarning.unknown] rather than a false all-clear. The comparison itself
+  /// is the core's — the UI never gets to decide its own threshold.
+  SkewWarning clockWarning({required int nowSecs, int? referenceUnixSecs}) {
+    if (referenceUnixSecs == null) return SkewWarning.unknown;
+    return skewWarning(
+      _bridge.skew(deviceSecs: nowSecs, referenceSecs: referenceUnixSecs),
+      referenceUnixSecs: referenceUnixSecs,
+    );
+  }
 
   /// The encrypted backup the user can keep.
   ///

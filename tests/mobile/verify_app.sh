@@ -79,6 +79,79 @@ grep -q "android.permission.CAMERA" <<<"$PERMISSIONS" || fail "the APK cannot sc
 grep -q "android.permission.USE_BIOMETRIC" <<<"$PERMISSIONS" || fail "USE_BIOMETRIC is missing"
 
 # --------------------------------------------------------------------------
+section "no backup, no screenshots"
+# --------------------------------------------------------------------------
+# H7 item 6. Both properties are silent when they regress: a missing
+# `allowBackup` or an unmapped FLAG_SECURE produces a perfectly healthy build,
+# so they are read out of the built APK rather than trusted from the manifest
+# in the source tree.
+MANIFEST="$("$AAPT" dump xmltree "$APK" --file AndroidManifest.xml)"
+
+# `aapt2` prints attributes as
+#   A: http://schemas.android.com/apk/res/android:allowBackup(0x01010280)=false
+# so there is no `(Raw: ...)` marker to grep on: the resource id and the value
+# are on the same line. An attribute that is absent from the dump is absent
+# from the manifest, which is what the failure has to catch.
+ALLOW_BACKUP="$(grep -E 'android:allowBackup\(' <<<"$MANIFEST" || true)"
+case "$ALLOW_BACKUP" in
+    *"=false") echo "  -> android:allowBackup = false" ;;
+    *) fail "the release manifest does not set android:allowBackup=false: accounts would be copied to the cloud" ;;
+esac
+
+# `allowBackup="false"` is not enough on Android 12+ for device-to-device
+# transfer, so the extraction rules have to be referenced too. Whether the
+# attribute points at a file, and not at nothing.
+EXTRACT="$(grep -E 'android:dataExtractionRules\(' <<<"$MANIFEST" || true)"
+case "$EXTRACT" in
+    *"=@0x"*) echo "  -> android:dataExtractionRules referenced" ;;
+    *) fail "no android:dataExtractionRules: on Android 12+ allowBackup alone does not stop device-to-device transfer" ;;
+esac
+
+FULL_BACKUP="$(grep -E 'android:fullBackupContent\(' <<<"$MANIFEST" || true)"
+case "$FULL_BACKUP" in
+    *"=@0x"*) echo "  -> android:fullBackupContent referenced" ;;
+    *) fail "no android:fullBackupContent for the pre-Android-12 path" ;;
+esac
+
+# The contents of those rules cannot be read back from the APK: release builds
+# rename `res/xml/*.xml` to opaque names, so there is no path to ask aapt2 for.
+# What can be asserted is that the source the build consumes really excludes
+# everything, which is where a regression would actually happen.
+#
+# The two files are different formats on purpose: `data_extraction_rules.xml` is
+# `<data-extraction-rules>` with `cloud-backup` and `device-transfer` sections
+# (Android 12+), while `backup_rules.xml` is the pre-12 `<full-backup-content>`
+# form, which has no sections at all. Checking one against the other's shape is
+# a mistake, so each is checked against its own.
+EXTRACTION_FILE="$APP/android/app/src/main/res/xml/data_extraction_rules.xml"
+[ -f "$EXTRACTION_FILE" ] || fail "$EXTRACTION_FILE is missing"
+grep -q 'domain="root"' "$EXTRACTION_FILE" \
+    || fail "data_extraction_rules.xml does not exclude the root domain: backup could carry the account blob"
+grep -q '<cloud-backup>' "$EXTRACTION_FILE" \
+    || fail "data_extraction_rules.xml has no cloud-backup section"
+grep -q '<device-transfer>' "$EXTRACTION_FILE" \
+    || fail "data_extraction_rules.xml has no device-transfer section: Android 12+ transfer would still work"
+echo "  -> data_extraction_rules.xml excludes root, cloud-backup and device-transfer"
+
+FULL_FILE="$APP/android/app/src/main/res/xml/backup_rules.xml"
+[ -f "$FULL_FILE" ] || fail "$FULL_FILE is missing"
+grep -q 'full-backup-content' "$FULL_FILE" \
+    || fail "backup_rules.xml is not a <full-backup-content> file: the pre-Android-12 path would back up"
+grep -q 'domain="root"' "$FULL_FILE" \
+    || fail "backup_rules.xml does not exclude the root domain"
+echo "  -> backup_rules.xml is a <full-backup-content> file that excludes root"
+
+# FLAG_SECURE has no manifest attribute: it is a window flag set in
+# MainActivity. So the assertion is that the flag is actually set in the code
+# that runs, which is the only place it can be.
+MAIN_ACTIVITY="$APP/android/app/src/main/kotlin/dev/bandall/bandall_authenticator/MainActivity.kt"
+grep -q 'FLAG_SECURE' "$MAIN_ACTIVITY" \
+    || fail "MainActivity no longer sets FLAG_SECURE: screenshots and recents thumbnails would show the codes"
+grep -q 'setFlags' "$MAIN_ACTIVITY" \
+    || fail "FLAG_SECURE is mentioned but never applied"
+echo "  -> FLAG_SECURE is applied in MainActivity"
+
+# --------------------------------------------------------------------------
 section "the Rust core is inside the APK"
 # --------------------------------------------------------------------------
 # `cargokit` derives the file it looks for from the Cargo *package* name, while
@@ -100,4 +173,6 @@ printf '  PASS  rust core tests and clippy\n'
 printf '  PASS  dart tests (offline proof included)\n'
 printf '  PASS  release APK built\n'
 printf '  PASS  no network permission (platform-enforced)\n'
+printf '  PASS  no cloud backup and no device transfer\n'
+printf '  PASS  FLAG_SECURE applied\n'
 printf '  PASS  Rust core bundled for all ABIs\n'

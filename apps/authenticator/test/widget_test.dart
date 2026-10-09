@@ -8,6 +8,7 @@ library;
 import 'package:bandall_authenticator/main.dart';
 import 'package:bandall_authenticator/src/account_store.dart';
 import 'package:bandall_authenticator/src/bridge.dart';
+import 'package:bandall_authenticator/src/clock.dart';
 import 'package:bandall_authenticator/src/repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +67,8 @@ class _FakeScanner extends StatelessWidget {
 }
 
 void main() {
+  clockWarningTests();
+
   testWidgets('an empty app invites the user to add an account', (
     tester,
   ) async {
@@ -249,4 +252,90 @@ class _BrokenStore implements AccountStore {
   @override
   Future<void> save(List<Account> accounts) async =>
       throw const SecureStorageUnavailable('test');
+}
+
+/// The clock warning (H7, item 4).
+///
+/// The app cannot reach a server for the time, so the reference is something the
+/// user reports. What these tests pin is that a *known* bad clock interrupts the
+/// screen, an unknown one does not, and unparseable input is refused instead of
+/// producing a confident wrong verdict.
+void clockWarningTests() {
+  testWidgets('the home screen stays quiet with no reference', (tester) async {
+    await _pumpApp(tester, bridge: FakeBridge()..scripted.add(_account()));
+
+    expect(find.byKey(const Key('clock-drift-warning')), findsNothing);
+    expect(find.byIcon(Icons.warning_amber), findsNothing);
+    expect(find.byKey(const Key('clock-check')), findsOneWidget);
+  });
+
+  testWidgets('a reported good clock produces no banner', (tester) async {
+    await _pumpApp(tester, bridge: FakeBridge()..scripted.add(_account()));
+
+    await tester.tap(find.byKey(const Key('clock-check')));
+    await tester.pumpAndSettle();
+
+    // The current device time as the reference: drift of zero.
+    await tester.enterText(
+      find.byKey(const Key('field-reference')),
+      formatWallClock(MonotonicClock.wallClockSecs()),
+    );
+    await tester.tap(find.byKey(const Key('clock-check-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your clock looks right.'), findsOneWidget);
+    expect(find.byKey(const Key('clock-error')), findsNothing);
+  });
+
+  testWidgets('a reference far from now raises the banner', (tester) async {
+    await _pumpApp(tester, bridge: FakeBridge()..scripted.add(_account()));
+
+    await tester.tap(find.byKey(const Key('clock-check')));
+    await tester.pumpAndSettle();
+
+    // Ten minutes ago: past the core's threshold, so the code cannot work.
+    final stale = MonotonicClock.wallClockSecs() - 600;
+    await tester.enterText(
+      find.byKey(const Key('field-reference')),
+      formatWallClock(stale),
+    );
+    await tester.tap(find.byKey(const Key('clock-check-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('does not match'), findsOneWidget);
+
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('clock-drift-warning')),
+      findsOneWidget,
+      reason: 'a clock that breaks every code must say so on the list',
+    );
+    // The banner and the app-bar icon both switch to the warning glyph.
+    expect(find.byIcon(Icons.warning_amber), findsWidgets);
+  });
+
+  testWidgets('an unreadable reference is refused, not guessed', (
+    tester,
+  ) async {
+    await _pumpApp(tester, bridge: FakeBridge()..scripted.add(_account()));
+
+    await tester.tap(find.byKey(const Key('clock-check')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('field-reference')),
+      'whenever',
+    );
+    await tester.tap(find.byKey(const Key('clock-check-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('clock-error')), findsOneWidget);
+    expect(
+      find.byKey(const Key('clock-verdict')),
+      findsNothing,
+      reason: 'a verdict from an unparsed time would be a confident lie',
+    );
+  });
 }

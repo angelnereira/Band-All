@@ -8,6 +8,7 @@ library;
 import 'package:bandall_authenticator/src/account_store.dart';
 import 'package:bandall_authenticator/src/biometric_gate.dart';
 import 'package:bandall_authenticator/src/bridge.dart';
+import 'package:bandall_authenticator/src/clock.dart';
 import 'package:bandall_authenticator/src/repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -276,6 +277,26 @@ void main() {
       expect(
         repository.skewAgainst(1_700_000_200, 1_700_000_000).warns,
         isTrue,
+      );
+    });
+
+    test('no reference means no verdict, not a false all-clear', () async {
+      final repository = AuthenticatorRepository(
+        bridge: FakeBridge(),
+        store: MemoryAccountStore(),
+      );
+      expect(
+        repository.clockWarning(nowSecs: 1_700_000_000),
+        SkewWarning.unknown,
+      );
+      expect(
+        repository
+            .clockWarning(
+              nowSecs: 1_700_000_600,
+              referenceUnixSecs: 1_700_000_000,
+            )
+            .name,
+        'drifted',
       );
     });
   });
