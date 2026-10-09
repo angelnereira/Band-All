@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pre-Android-12 cloud backup rules (`android:fullBackupContent`).
+
+  Same decision as `data_extraction_rules.xml`, for the API levels where this
+  file is the one the platform reads. Nothing is eligible for backup: the
+  account list is Keystore-encrypted, and the only supported way to move it is
+  the export the app produces on request, under a passphrase, behind
+  biometrics.
+
+  No `cache` domain here: Auto Backup does not have one. The valid domains are
+  file, database, sharedpref, external, root and their `device_*` variants, and
+  Gradle's FullBackupContent lint rejects anything else. Since `root` already
+  covers everything the app stores, excluding the others is what makes the
+  intent explicit rather than implied.
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>

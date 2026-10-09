@@ -6,6 +6,29 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ### Added
 
+- **Aviso de reloj desfasado y reloj monótono en la app** (H7, punto 4). El reloj
+  de los códigos se ancla una vez y avanza con un `Stopwatch` monótono, así que
+  una corrección NTP o un cambio de zona horaria ya no cambia los ocho códigos
+  visibles de golpe a mitad de sesión. Para el caso que de verdad rompe un
+  login —un reloj *persistentemente* equivocado— la app compara su hora con la
+  de un momento en que un código fue aceptado en otro sitio: no tiene permiso de
+  red (ADR-0016), así que el usuario es la única fuente de verdad disponible y
+  sin referencia la app dice "no puedo saberlo" en vez de mostrar un verde
+  tranquilizador. 14 tests nuevos de reloj y 4 de widget.
+- **Endurecimiento de Android** (H7, punto 6): `FLAG_SECURE` (sin capturas de
+  pantalla, sin grabación, sin miniatura en recientes), `allowBackup="false"` y
+  reglas de extracción de datos que excluyen todos los dominios, de modo que ni
+  la copia de seguridad en la nube ni el traspaso de dispositivo llevan las
+  cuentas.
+- **`docs/masvs-review.md`**: autoevaluación OWASP MASVS de la app, con lo que
+  está verificado, cómo reproducirlo y las siete brechas abiertas (la primera,
+  el dispositivo real).
+- **README completo**: estado real por hito, requisitos con versiones fijadas en
+  el repo, instalación de las cuatro superficies, uso paso a paso, arquitectura,
+  configuración, API, CLI, stack con el porqué de cada dependencia, cómo se
+  verifica el artefacto y **qué falta**, ordenado entre lo que necesita una
+  decisión y lo que necesita hardware.
+- **Conexiones largas** (ADR-0017): ticket de WebSocket de un solo uso (`POST /v1/ws/ticket` 30 s, `POST /v1/ws/ticket/redeem` S2S, `POST /v1/ws/ticket/recheck` S2S), tabla `ws_tickets` con claim atómico (`UPDATE … WHERE used_at IS NULL`, migración 8), techo de conexión atado a `exp` del token, y el crate nuevo `bandall-sdk-grpc` — interceptor `tonic` que valida `authorization: Bearer` contra JWKS y responde `UNAUTHENTICATED` uniforme, con fallo-cerrado cuando el documento es inalcanzable. Eventos de auditoría `ws.ticket_*`. Probado en unidad (5), E2E (3) y contenedor (5).
 - T4: **cadena de auditoría con clave** (ADR-0010, migración 7). HMAC-SHA-256 sobre un registro con prefijo de longitud que cubre versión, `ts`, `tenant_id`, `subject_id`, `event` y `prev_hash`; clave de 32 B en `audit_key_file` (obligatoria, `0600`) fuera de la base de datos; `bandall audit verify` la usa. El append pasa a `Store::append_audit_chained`, una transacción que lee el tip bajo bloqueo y calcula el enlace dentro, así que dos escritores ya no pueden bifurcar la cadena. `chain_version` permite verificar filas v1 y v2 en el mismo log. Postgres revoca `UPDATE`/`DELETE`/`TRUNCATE` sobre `audit_log` a `PUBLIC` y al rol `bandall_app` cuando existe.
 - H0: workspace Cargo con los crates `bandall-*`, lints de seguridad, CI (fmt, clippy, tests, MSRV, cargo-deny, cargo-audit, cobertura y build de imagen).
 - Docker: imagen distroless no-root y stack de desarrollo con Postgres 16.
@@ -45,6 +68,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
   y Helm lo montan ya.
 
 ### Fixed
+
+- **`backup_rules.xml` no compilaba**: el dominio `cache` no existe en
+  `full-backup-content` (sí en las reglas de extracción de Android 12+), y el
+  lint `FullBackupContent` lo rechaza. El build de release del APK falló con
+  este error, que es exactamente para lo que existe la aserción de empaquetado.
 
 - T4: la auditoría era recalculable por cualquiera con escritura en `audit_log`
   (hash sin clave), `tenant_id` y `subject_id` quedaban fuera del prehash (cambiar de titular una fila no rompía la verificación) y los campos iban concatenados sin prefijo de longitud. Los tres están cerrados; ver "Added".

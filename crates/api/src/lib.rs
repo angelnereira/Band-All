@@ -26,6 +26,7 @@ pub mod sigs;
 pub mod state;
 pub mod token;
 pub mod verify;
+pub mod wsticket;
 
 pub use audit::AuditChain;
 pub use bandall_store::AuditEntry;

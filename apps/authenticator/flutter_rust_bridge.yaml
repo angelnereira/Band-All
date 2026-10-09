@@ -1,0 +1,10 @@
+# flutter_rust_bridge code generation (ADR-0016).
+#
+#   cd apps/authenticator && flutter_rust_bridge_codegen generate
+#
+# Regenerates `rust/src/frb_generated.rs` and `lib/src/rust/**`. Both are
+# committed: a fresh checkout must build without running codegen, and a diff in
+# the generated files is the signal that the API changed.
+rust_input: crate::api
+rust_root: rust/
+dart_output: lib/src/rust

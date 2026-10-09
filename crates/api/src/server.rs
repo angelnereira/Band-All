@@ -25,6 +25,7 @@ use crate::sigs;
 use crate::state::{AppState, PolicyHandle};
 use crate::token;
 use crate::verify;
+use crate::wsticket;
 
 /// Builds the router. MFA endpoints land here in later H3 commits.
 pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
@@ -41,6 +42,9 @@ pub fn router(state: AppState, body_limit_bytes: usize) -> Router {
         .route("/v1/token/revoke", post(token::revoke))
         .route("/v1/sigs/verify", post(sigs::verify_signature))
         .route("/v1/authz/check", get(authz::check))
+        .route("/v1/ws/ticket", post(wsticket::ticket))
+        .route("/v1/ws/ticket/redeem", post(wsticket::redeem))
+        .route("/v1/ws/ticket/recheck", post(wsticket::recheck))
         .route("/metrics", get(metrics::metrics))
         .route("/.well-known/jwks.json", get(token::jwks))
         .fallback(health::not_found)

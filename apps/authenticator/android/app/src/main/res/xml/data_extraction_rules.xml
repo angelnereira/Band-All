@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cloud backup and device-to-device transfer (Android 12+).
+
+  An authenticator's stored accounts are Keystore-encrypted blobs, so a copy
+  would not decrypt on another device. That is a mitigation, not a policy: this
+  file states the policy the roadmap asks for (no cloud backup by default), and
+  the exported backup is the user's deliberate, passphrase-protected choice.
+
+  `<exclude domain="root" />` covers everything, including anything a future
+  plugin writes. The database, shared preferences, files, external and cache
+  domains are then enumerated only so the intent is readable rather than
+  implied: this app has nothing it wants in a backup.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+        <exclude domain="cache" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="file" />
+        <exclude domain="external" />
+        <exclude domain="cache" />
+    </device-transfer>
+</data-extraction-rules>

@@ -8,6 +8,7 @@ members = [
     "crates/cli",
     "crates/policy",
     "crates/sdk-axum",
+    "crates/sdk-grpc",
     "crates/sigs",
     "crates/store",
     "crates/tokens",
@@ -41,6 +42,7 @@ bandall-cli = { path = "crates/cli", version = "0.1.0" }
 bandall-embedded = { path = "crates/embedded", version = "0.1.0" }
 bandall-policy = { path = "crates/policy", version = "0.1.0" }
 bandall-sdk-axum = { path = "crates/sdk-axum", version = "0.1.0" }
+bandall-sdk-grpc = { path = "crates/sdk-grpc", version = "0.1.0" }
 bandall-sigs = { path = "crates/sigs", version = "0.1.0" }
 bandall-store = { path = "crates/store", version = "0.1.0" }
 bandall-tokens = { path = "crates/tokens", version = "0.1.0" }
@@ -87,3 +89,4 @@ unimplemented = "deny"
 # The CLI is the only place allowed to print; libraries stay silent.
 print_stdout = "deny"
 print_stderr = "deny"
+

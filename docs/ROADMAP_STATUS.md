@@ -2,19 +2,19 @@
 
 Fuente: `BANDALL_ROADMAP.md` §3 y `docs/VERIFICATION.md`. Regla del repo: un
 hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
-2026-10-07.**
+2026-10-08.**
 
 | Hito | Código | Tests ejecutados | Gate | Estado |
 |---|---|---|---|---|
-| **H0** Cimientos | ✅ | ✅ (workspace completo: 110 tests) | ⚠️ | **abierto**: CI sin runner; `main` sin protección (PR/CI/firmas) |
+| **H0** Cimientos | ✅ | ✅ (workspace completo: **155 tests**) | ⚠️ | **abierto**: CI sin runner; `main` sin protección (PR/CI/firmas) |
 | **H1** `totp-core` | ✅ | ✅ 24 unit + 12 proptest + 1 doc; **fuzz 1 h × 4 targets sin crashes**; cobertura **93.95 %** | ✅ | **cerrado** (fuzz 1 h verificado con cargo-fuzz; falta CI solo como formalidad) |
 | **H2** Vault + store | ✅ | ✅ vault (8+1); store **SQLite y Postgres 18.6** (6 cada uno, incluida la batería at-rest) | ✅ | **cerrado** (en local; falta CI) |
 | **H3** API MFA | ✅ | ✅ 29 unit + 11 E2E | ✅ | **cerrado** (sujeto a CI verde) |
 | **H4** Tokens | ✅ | ✅ tokens (8); E2E de rotación verde, **con Postgres** | ⚠️ | **abierto** (ítem 5 web: entregado como guía + ADR-0011, sin cookies en el servidor) |
 | **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h**; **cadena con clave verificada en el contenedor**: verde y BROKEN tras alterar una fila | ⚠️ | **abierto** (falta CI, pentest y decisión de ADR-0009) |
-| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (`bandall-embedded`, ADR-0014), **45 tests funcionales + 16 de firmas HMAC contra el contenedor**, scopes y JWKS remoto (ADR-0013) | ⚠️ | **abierto** (ADR-0013 resuelve el choque de scopes; falta CI y el gate de la demo legacy levantado desde cero) |
-| **H7** App autenticadora | ⚠️ solo `authenticator-core` (6 ✅); UI nativa/UniFFI no empezada | ⚠️ | ❌ | **abierto** |
-| **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; **SLOs medidos en contenedor sí** (ver §Verificación del contenedor); DR y caos **no** | ⚠️ | ❌ | **abierto** |
+| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (`bandall-embedded`, ADR-0014), **50 tests funcionales + 16 de firmas HMAC contra el contenedor**, scopes y JWKS remoto (ADR-0013), **conexiones largas WS/gRPC** (ADR-0017) | ⚠️ | **abierto** (ADR-0013 resuelve el choque de scopes; falta CI y el gate de la demo legacy levantado desde cero) |
+| **H7** App autenticadora | ✅ app Flutter completa (`apps/authenticator`, ADR-0016), puntos 1-4 y 6 del hito cumplidos | ✅ **12 tests del puente Rust (RFC 6238/4226) + 52 tests Dart + analyze/clippy limpios + APK release construido** | ⚠️ | **abierto solo por hardware**: punto 5 (modo avión, reinicio, desinstalación, reloj ±45 s) y biometría real necesitan un dispositivo; iOS necesita macOS |
+| **H8** Operación | ✅ metrics/Helm/k6/runbooks; **SLOs medidos en contenedor sí**; **DR ensayado** (`tests/dr/rehearse_restore.sh`, RTO 37 s); **caos ensayado** (`tests/ops/chaos_drill.sh`, 6/6) | ✅ | ⚠️ | **abierto solo por lo externo**: runbooks sin revisión cruzada de otra persona, y las alertas sin destino de entrega real (receptor vacío a propósito) |
 | **H9** Certificación | ❌ (pentest, WebAuthn, FIPS) | ❌ | ❌ | **no empezado** |
 
 ## Bloqueos que impiden cerrar H2–H6
@@ -33,11 +33,11 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
    carga simulada se ejecutan hoy contra el contenedor real
    (`tests/container/`, ver §Verificación del contenedor).
 
-## Verificación del contenedor (2026-10-07)
+## Verificación del contenedor (2026-10-08)
 
-Nuevo: `tests/container/verify.sh` empaqueta el proyecto y verifica **el
-artefacto**, no el árbol de fuentes. Resultado de la ronda, en las dos
-configuraciones de base de datos:
+`tests/container/verify.sh` empaqueta el proyecto y verifica **el artefacto**,
+no el árbol de fuentes. Resultado de la ronda, en las dos configuraciones de
+base de datos:
 
 | Comprobación | SQLite | Postgres (TLS) |
 |---|---|---|
@@ -46,7 +46,7 @@ configuraciones de base de datos:
 | Fail-closed de configuración (2 casos) | ✅ | ✅ |
 | `migrate` + `serve` + `/readyz` + `healthcheck` | ✅ | ✅ |
 | Hardening en runtime (read-only, `cap_drop`, core=0) | ✅ | ✅ |
-| Suite funcional y de seguridad (**45 tests**) | ✅ | ✅ |
+| Suite funcional y de seguridad (**50 tests**, +5 de tickets de conexión) | ✅ | ✅ |
 | Firmas HMAC (**16 tests**) | ✅ | ✅ |
 | Sin secretos ni pánicos en los logs | ✅ | ✅ |
 | Cadena de auditoría: verde, y BROKEN tras alterar una fila | ✅ | ✅ |
@@ -70,6 +70,72 @@ confirm de enrolamiento consume el paso que acepta, así que confirmar con el
 código del paso actual convertía toda verificación posterior en replay
 —comportamiento correcto del servidor, cliente equivocado.
 
+Y lo que encontró y **sí** era defecto del servicio: `/readyz` respondía 200
+con la base de datos vacía, porque hacía `SELECT 1` en lugar de comprobar el
+esquema. Lo destapó el ensayo de DR al destruir el esquema bajo un servicio en
+marcha. Corregido en los dos motores, con test de regresión.
+
+## Verificación de la app móvil (2026-10-08)
+
+`tests/mobile/verify_app.sh` hace el mismo para la app: no basta con que compile,
+se comprueba **el APK que sale**.
+
+| Comprobación | Estado |
+|---|---|
+| `flutter analyze` sin avisos y `clippy -D warnings` | ✅ |
+| 12 tests del puente Rust contra los vectores RFC 6238/4226 | ✅ |
+| 52 tests Dart, incluida la prueba de que la app funciona sin red | ✅ |
+| APK de release construido (~66 MB, tres ABIs) | ✅ |
+| El APK **no** declara `INTERNET` ni `ACCESS_NETWORK_STATE` | ✅ |
+| La librería Rust está dentro del APK para las tres ABIs | ✅ |
+
+Los dos fallos de empaquetado que estas dos últimas aserciones evitan:
+
+1. El APK de release **declaraba red** que la app negaba en su documentación,
+   arrastrada por la telemetría de Google a través de ML Kit → `mobile_scanner`.
+   Se corrige con `tools:node="remove"`.
+2. El APK **no llevaba dentro** la librería Rust: `cargokit` deriva el nombre
+   del artefacto del nombre del *package*, y cargo normaliza los guiones a
+   subrayados. Build verde, crash al arrancar. Se corrige renombrando el paquete
+   a `bandall_authenticator_ffi` — el nombre con guiones es *load-bearing*.
+
+## Verificación del caos (2026-10-08)
+
+`tests/ops/chaos_drill.sh` levanta la pila de observabilidad completa
+(Prometheus + blackbox-exporter + Alertmanager + BandAll real sobre un volumen
+real) y comprueba, en este orden y todo en verde:
+
+| Comprobación | Resultado |
+|---|---|
+| Las reglas cargan y **todas están en `inactive`** de partida | ✅ |
+| `/readyz` responde 200 *antes* de romper nada | ✅ |
+| Con el servicio parado, `/readyz` se rechaza (no responde 200) | ✅ |
+| `BandAllNotReady` pasa a `firing` dentro de su ventana | ✅ |
+| La alerta **llega** a Alertmanager | ✅ |
+| La alerta vuelve a `inactive` tras recuperarse | ✅ |
+| Sin fichero de clave legible, el servicio no arranca (exit 2) | ✅ |
+
+Lo que el ensayo encontró y no era del stack, sino **mío**:
+
+1. **Prometheus rechazaba mi configuración**: `external_labels` no es un campo
+   válido en Prometheus 3.1 y el contenedor salía con código 2. No es un detalle
+   de estilo: la pila entera no levantaba.
+2. **`BandAllNoTraffic` estaba `pending` en línea base.** La regla era
+   `rate(verified[5m]) == 0`, que en un servicio sin logins se cumple igual que
+   en uno al que le han cortado el tráfico. La comprobación de línea base lo
+   detectó antes de romper nada, que es justo para lo que está: una alerta que
+   dispara en un despliegue nuevo es ruido. La versión que quedó compara la
+   última hora con la anterior, así que dice "hace una hora entraban y ahora
+   ninguno".
+3. **Puerto 9090 ocupado** por un contenedor de otro proyecto. Los puertos del
+   stack ahora son variables de entorno con valores por defecto fuera de los
+   habituales, para no llevarse mal con los vecinos.
+4. El servicio de la pila solo hacía `expose`, así que el ensayo no podía
+   alcanzar `/readyz` desde el host. Se publica.
+
+Detalle en [`docs/runbooks/chaos.md`](docs/runbooks/chaos.md), que incluye una
+tabla de qué hacer cuando cada alerta dispare.
+
 ## Orden de desbloqueo
 
 1. Resolver la facturación de GitHub (o correr el gate en otra máquina) →
@@ -78,7 +144,9 @@ código del paso actual convertía toda verificación posterior en replay
    real** en esta ronda (batería completa, incluidas la reserva atómica y la
    ráfaga de 50 appends encadenados).
 3. Fuzz de los parsers de `totp-core` contra el contenedor ya construido.
-4. Cerrar H2→H6 en orden y abrir H7 UI / H8 DR.
+4. Cerrar H2→H6 en orden. H7 y H8 tienen su parte de código hecha y
+   verificada contra los artefactos; lo que les queda es hardware (H7) y caos
+   (H8), no desarrollo.
 
 ## Remediación de la revisión de seguridad (`docs/AGENT_BRIEF.md`)
 

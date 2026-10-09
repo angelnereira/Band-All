@@ -11,7 +11,7 @@ use crate::error::Error;
 use crate::store::{BoxFuture, Store};
 use crate::types::{
     ApiClient, AuditEntry, AuditHasher, Factor, NewApiClient, NewAudit, NewFactor, NewRefresh,
-    RecoveryHash, RefreshEntry, Session, Subject, Tenant,
+    NewWsTicket, RecoveryHash, RefreshEntry, Session, Subject, Tenant, WsTicketEntry,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
@@ -52,6 +52,13 @@ impl SqliteStore {
         Ok(Self {
             pool: SqlitePool::connect_with(options).await?,
         })
+    }
+
+    /// The underlying pool, for tests and maintenance that must inspect or
+    /// alter the schema directly.
+    #[must_use]
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
     }
 
     /// Runs pending migrations.
@@ -265,7 +272,13 @@ impl Store for SqliteStore {
 
     fn health(&self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            sqlx::query("SELECT 1").execute(&self.pool).await?;
+            // A table the service cannot work without, not `SELECT 1`: the
+            // database answers a constant query with success even when every
+            // table has been dropped, which is exactly the state readiness
+            // must refuse to advertise (the H8 restore rehearsal found this).
+            sqlx::query("SELECT 1 FROM factors LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?;
             Ok(())
         })
     }
@@ -412,6 +425,44 @@ impl Store for SqliteStore {
             .execute(&self.pool)
             .await?;
             Ok(result.rows_affected() == 1)
+        })
+    }
+
+    fn store_ws_ticket(&self, entry: NewWsTicket) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO ws_tickets (code_hash, session_id, tenant_id, subject_id, access_expires_at, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(entry.code_hash)
+            .bind(entry.session_id)
+            .bind(entry.tenant_id)
+            .bind(entry.subject_id)
+            .bind(entry.access_expires_at)
+            .bind(entry.created_at)
+            .bind(entry.expires_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn claim_ws_ticket<'a>(
+        &'a self,
+        hash: &'a str,
+        now_secs: i64,
+    ) -> BoxFuture<'a, Result<Option<WsTicketEntry>, Error>> {
+        Box::pin(async move {
+            // One atomic statement: whoever marks `used_at` first wins, and the
+            // winner comes back with everything the redeemer needs. A spent or
+            // unknown ticket is simply absent.
+            let entry = sqlx::query_as::<_, WsTicketEntry>(
+                "UPDATE ws_tickets SET used_at = ? WHERE code_hash = ? AND used_at IS NULL RETURNING code_hash, session_id, tenant_id, subject_id, access_expires_at, created_at, expires_at, used_at",
+            )
+            .bind(now_secs)
+            .bind(hash)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(entry)
         })
     }
 
@@ -652,6 +703,7 @@ async fn reserve(
 #[cfg(test)]
 mod tests {
     use super::SqliteStore;
+    use crate::store::Store;
     use crate::tests_battery;
     use std::sync::Arc;
 
@@ -699,5 +751,46 @@ mod tests {
         tests_battery::audit_chain_concurrency(&Arc::new(store))
             .await
             .unwrap();
+    }
+
+    /// The ticket battery, against SQLite (ADR-0017).
+    #[tokio::test]
+    async fn sqlite_ws_tickets_battery() {
+        let store = Arc::new(SqliteStore::in_memory().await.unwrap());
+        store.migrate().await.unwrap();
+        crate::tests_battery_ws::ws_tickets(&store).await.unwrap();
+    }
+
+    /// Readiness must refuse a database whose schema is gone.
+    ///
+    /// `SELECT 1` answers happily in an empty database, so a readiness probe
+    /// built on it advertises a service that cannot answer anything. Found by
+    /// the H8 restore rehearsal, which dropped the schema under a running
+    /// service and watched `/readyz` keep returning 200.
+    #[tokio::test]
+    async fn health_fails_once_the_schema_is_gone() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        store.migrate().await.unwrap();
+        Store::health(&store)
+            .await
+            .expect("a migrated store is healthy");
+
+        // Deliberately NOT the same statement as the Postgres version: SQLite
+        // has no `CASCADE` keyword on `DROP TABLE` and rejects it as a syntax
+        // error. Both tests express the same intent — the schema must be gone,
+        // not merely empty — but the two SQL dialects spell it differently. The
+        // previous version used the identical statement in both and passed in
+        // SQLite while erroring in Postgres, because SQLite only refuses to drop
+        // a parent table when foreign keys are enforced, and this connection does
+        // not enforce them.
+        sqlx::query("DROP TABLE factors")
+            .execute(store.pool())
+            .await
+            .unwrap();
+
+        assert!(
+            Store::health(&store).await.is_err(),
+            "readiness must fail when the tables it needs are missing"
+        );
     }
 }

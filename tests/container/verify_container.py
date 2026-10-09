@@ -222,6 +222,89 @@ class TestEnrolmentFlow(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# WebSocket connection tickets (ADR-0017).
+# --------------------------------------------------------------------------
+
+
+class TestWsTickets(unittest.TestCase):
+    def _ticket_for(self, session: Session) -> str:
+        """Exchanges the session's access token for a connection ticket."""
+        result = tenant_client().post(
+            "/v1/ws/ticket",
+            headers={"Authorization": f"Bearer {session.access_token}"},
+        )
+        self.assertEqual(result.status, 200, result)
+        self.assertEqual(result.json["expires_in"], 30)
+        self.assertEqual(len(result.json["ticket"]), 43)
+        return result.json["ticket"]
+
+    def test_ticket_full_lifecycle(self):
+        session = new_session().enroll()
+        session.mfa_verify()
+        ticket = self._ticket_for(session)
+
+        # The service redeems the ticket once, learning the identity and the
+        # hard ceiling for the connection.
+        redeemed = tenant_client().post(
+            "/v1/ws/ticket/redeem", {"ticket": ticket}
+        )
+        self.assertEqual(redeemed.status, 200, redeemed)
+        self.assertTrue(redeemed.json["valid"])
+        self.assertEqual(redeemed.json["subject_id"], session.subject_id)
+        self.assertEqual(redeemed.json["tenant_id"], session.tenant_id)
+        self.assertGreater(redeemed.json["expires_at"], 0)
+
+        # Single-use: the same ticket must not open a second connection.
+        replay = tenant_client().post("/v1/ws/ticket/redeem", {"ticket": ticket})
+        self.assertEqual(replay.status, 401, replay)
+
+        # The bound session answers the re-checks.
+        rechecked = tenant_client().post(
+            "/v1/ws/ticket/recheck", {"session_id": redeemed.json["session_id"]}
+        )
+        self.assertEqual(rechecked.status, 200, rechecked)
+        self.assertTrue(rechecked.json["live"])
+
+    def test_unknown_ticket_is_denied(self):
+        result = tenant_client().post("/v1/ws/ticket/redeem", {"ticket": "nope"})
+        self.assertEqual(result.status, 401, result)
+
+    def test_ticket_requires_a_real_token(self):
+        no_auth = tenant_client().post("/v1/ws/ticket")
+        self.assertEqual(no_auth.status, 401, no_auth)
+        forged = tenant_client().post(
+            "/v1/ws/ticket", headers={"Authorization": "Bearer forged"}
+        )
+        self.assertEqual(forged.status, 401, forged)
+
+    def test_redeem_is_s2s_only(self):
+        # Without the service key the redeem must be denied even with a valid
+        # ticket, because a browser must not be able to claim one.
+        session = new_session().enroll()
+        session.mfa_verify()
+        ticket = self._ticket_for(session)
+        anonymous = Client(BASE_URL).post("/v1/ws/ticket/redeem", {"ticket": ticket})
+        self.assertEqual(anonymous.status, 401, anonymous)
+
+    def test_revoked_session_fails_the_recheck(self):
+        session = new_session().enroll()
+        session.mfa_verify()
+        ticket = self._ticket_for(session)
+        redeemed = tenant_client().post("/v1/ws/ticket/redeem", {"ticket": ticket})
+        self.assertEqual(redeemed.status, 200, redeemed)
+        sid = redeemed.json["session_id"]
+
+        revoked = tenant_client().post("/v1/token/revoke", {"refresh_token": session.refresh_token})
+        self.assertEqual(revoked.status, 200, revoked)
+
+        # The session is dead even though the connection ticket was valid: this
+        # is the property that lets a service cut an established WebSocket
+        # without waiting for the token to expire.
+        dead = tenant_client().post("/v1/ws/ticket/recheck", {"session_id": sid})
+        self.assertEqual(dead.status, 401, dead)
+
+
+# --------------------------------------------------------------------------
 # security
 # --------------------------------------------------------------------------
 
@@ -553,6 +636,7 @@ def build_suite(groups: list[str]) -> unittest.TestSuite:
         "input": TestInputHandling,
         "ratelimit": TestRateLimiting,
         "metrics": TestMetrics,
+        "ws": TestWsTickets,
     }
     selected = groups or list(wanted)
     for group in selected:

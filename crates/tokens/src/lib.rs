@@ -17,9 +17,11 @@ pub mod error;
 pub mod jwks;
 pub mod keys;
 pub mod refresh;
+pub mod ticket;
 
 pub use access::{ACCESS_TTL_SECS, Claims, issue, verify, verify_with_jwks};
 pub use error::Error;
 pub use jwks::{Jwk, Jwks, document};
 pub use keys::{KeyManager, KeyPair};
 pub use refresh::{REFRESH_TTL_SECS, RefreshToken, hash_plaintext};
+pub use ticket::{WS_TICKET_TTL_SECS, WsTicket};

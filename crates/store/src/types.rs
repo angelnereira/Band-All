@@ -206,6 +206,48 @@ pub struct NewApiClient {
     pub created_at: i64,
 }
 
+/// WebSocket connection-ticket row (ADR-0017): the hash only, with a hard
+/// lifetime and an atomic claim.
+#[derive(Debug, Clone, FromRow)]
+pub struct WsTicketEntry {
+    /// SHA-256 hash of the opaque ticket (hex). Primary key.
+    pub code_hash: String,
+    /// Owning session (`sid` the connection re-validates against).
+    pub session_id: String,
+    /// Owning tenant.
+    pub tenant_id: String,
+    /// Owning subject.
+    pub subject_id: String,
+    /// Expiry of the access token that obtained the ticket: the hard ceiling
+    /// for the connection's life.
+    pub access_expires_at: i64,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+    /// Ticket expiry (Unix seconds): `created_at + WS_TICKET_TTL_SECS`.
+    pub expires_at: i64,
+    /// Consumption time (`None` = unused); claiming is atomic.
+    pub used_at: Option<i64>,
+}
+
+/// A ticket to persist.
+#[derive(Debug, Clone)]
+pub struct NewWsTicket {
+    /// SHA-256 hash of the opaque ticket (hex).
+    pub code_hash: String,
+    /// Owning session.
+    pub session_id: String,
+    /// Owning tenant.
+    pub tenant_id: String,
+    /// Owning subject.
+    pub subject_id: String,
+    /// Expiry of the access token that obtained the ticket.
+    pub access_expires_at: i64,
+    /// Creation time (Unix seconds).
+    pub created_at: i64,
+    /// Ticket expiry (Unix seconds).
+    pub expires_at: i64,
+}
+
 /// Audit log entry: hash-chained for tamper evidence.
 #[derive(Debug, Clone, FromRow)]
 pub struct AuditEntry {

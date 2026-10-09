@@ -1,0 +1,91 @@
+# Alert rules for BandAll (H8).
+#
+# Loaded by the observability stack (`deploy/compose/compose.obs.yaml`). The
+# metrics named here are the four counters `crates/api` actually exports plus
+# the `/readyz` probe; nothing is asserted that does not exist, because an alert
+# on a metric that was never emitted is worse than no alert: it looks like
+# coverage.
+#
+# `for` on every rule: a single scrape is not a fact. The evaluation interval
+# is 15 s, so the durations below are the smallest that cannot be satisfied by
+# one bad scrape.
+
+groups:
+  - name: bandall-availability
+    rules:
+      # The service is alive but not answerable. This is the bug the DR
+      # rehearsal found: `/readyz` used to answer 200 with an empty schema
+      # because it ran `SELECT 1`. Now `/readyz` checks the schema, so a 503 here
+      # means the proxy must stop sending traffic to this instance.
+      - alert: BandAllNotReady
+        expr: probe_success{job="bandall-readyz"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "BandAll reports itself not ready"
+          description: >-
+            /readyz has not answered 200 for 30 s. The instance is reachable but
+            cannot answer: check the database, the schema and the KMS key file.
+
+      # Traffic stopped, **and it used to exist**. The first version of this
+      # rule was `rate(verified[5m]) == 0`, which the chaos drill's baseline
+      # check flagged straight away: on a service that has never had a login
+      # that is zero too, so the rule sat `pending` before anyone broke
+      # anything. An alert that fires on a fresh deployment is noise, and
+      # operators learn to ignore noise — which is the failure mode this whole
+      # drill exists to prevent.
+      #
+      # Comparing the last hour against the hour before it is what says "it
+      # stopped", and it is cheap: two `increase` calls, no subqueries.
+      - alert: BandAllNoTraffic
+        expr: >-
+          sum(increase(bandall_mfa_verified_total[1h])) == 0
+          and sum(increase(bandall_mfa_verified_total[1h] offset 1h)) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Second factors were being accepted and now none are"
+          description: >-
+            This instance accepted second factors an hour ago and has accepted
+            none in the last hour, for at least 5 minutes. Either traffic
+            stopped reaching it (check the proxies in front) or it stopped
+            accepting (check the audit log for denials).
+
+  - name: bandall-abuse
+    rules:
+      # Denials above a fifth of accepted verifications, with real volume behind
+      # them. The ratio alone fires on a fresh deployment with 2 logins (1
+      # denied, 4 accepted is a ratio of 0.25 with no meaning), so both the
+      # ratio and a floor on the volume are required.
+      - alert: BandAllHighDenialRate
+        expr: >-
+          sum(rate(bandall_mfa_denied_total[5m]))
+          / clamp_min(sum(rate(bandall_mfa_verified_total[5m])), 1)
+          > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Denials above 20% of accepted verifications"
+          description: >-
+            Either an attacker is guessing codes, or users cannot log in and are
+            retrying. Both look identical in the counter; the audit log says
+            which, by subject_id.
+
+  - name: bandall-credentials
+    rules:
+      # An alert-manager-level signal: nobody is watching the alerts. Prometheus
+      # exposes the state of the last successful alert delivery, and a queue that
+      # does not drain means the alerts nobody receives.
+      - alert: AlertManagerDeliveryFailing
+        expr: increase(alertmanager_notifications_failed_total[15m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alertmanager notifications are failing"
+          description: >-
+            An alert fired and could not be delivered. The rules above are only
+            useful if somebody hears them.

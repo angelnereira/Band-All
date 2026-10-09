@@ -23,6 +23,12 @@ services:
         target: /tmp
         tmpfs:
           size: 64m
+    ports:
+      # Published so the chaos drill can reach `/readyz` from the host and prove
+      # the service answers before it breaks anything. `expose` alone would keep
+      # it reachable only from the other containers on the network, which is not
+      # the same thing.
+      - "127.0.0.1:${BANDALL_OBS_BANDALL_PORT:-18080}:8080"
     expose:
       - "8080"
     # Same hardening as the demo (AGENTS.md §Docker): read-only rootfs, no
@@ -40,6 +46,17 @@ services:
           cpus: "1.0"
           memory: 512M
 
+  blackbox-exporter:
+    # Probes `/readyz` from the outside. The service cannot report its own
+    # unreadiness usefully: a process with a dead database still exports
+    # `/metrics` and still answers `/healthz`, which is precisely the failure
+    # mode the DR rehearsal found. Worth one official image: it is the standard
+    # readiness probe and the alternative is a bespoke exporter that would have
+    # to re-repeat what `curl` already knows.
+    image: prom/blackbox-exporter:v0.25.0
+    expose:
+      - "9115"
+
   prometheus:
     image: prom/prometheus:v3.1.0
     command:
@@ -47,11 +64,26 @@ services:
       - --storage.tsdb.retention.time=7d
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - promdata:/prometheus
     ports:
-      - "127.0.0.1:9090:9090"
+      # Overridable, because 9090 is a popular port and an observability stack
+      # that refuses to start because something else on the machine holds it is
+      # a bad neighbour. The defaults are chosen off the defaults on purpose.
+      - "127.0.0.1:${BANDALL_OBS_PROMETHEUS_PORT:-19090}:9090"
     depends_on:
       - bandall
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:${BANDALL_OBS_ALERTMANAGER_PORT:-19093}:9093"
+    depends_on:
+      - prometheus
 
 volumes:
   obsdata:
