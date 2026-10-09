@@ -62,6 +62,20 @@ verify-container *ARGS:
 verify-app:
     @tests/mobile/verify_app.sh
 
+# Chaos drill for H8: bring up the observability stack, verify the alert rules
+# are loaded and *quiet*, stop the service, confirm BandAllNotReady fires and
+# reaches Alertmanager, confirm it resolves on recovery, and confirm a broken
+# key file refuses to start. Needs a running Docker daemon.
+#
+# Everything it starts is torn down on the way out.
+verify-chaos:
+    @tests/ops/chaos_drill.sh
+
+# DR rehearsal: backup, destroy, restore, idempotent migrate, audit chain
+# verify and a real login. Needs a running Docker daemon.
+verify-dr:
+    @tests/dr/rehearse_restore.sh
+
 # Regenerate the Dart bindings after changing `apps/authenticator/rust/src/api.rs`.
 # The generated files are committed, so this is only needed when the API changes.
 mobile-generate:

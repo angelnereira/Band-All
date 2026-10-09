@@ -14,7 +14,7 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h**; **cadena con clave verificada en el contenedor**: verde y BROKEN tras alterar una fila | ⚠️ | **abierto** (falta CI, pentest y decisión de ADR-0009) |
 | **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (`bandall-embedded`, ADR-0014), **50 tests funcionales + 16 de firmas HMAC contra el contenedor**, scopes y JWKS remoto (ADR-0013), **conexiones largas WS/gRPC** (ADR-0017) | ⚠️ | **abierto** (ADR-0013 resuelve el choque de scopes; falta CI y el gate de la demo legacy levantado desde cero) |
 | **H7** App autenticadora | ✅ app Flutter completa (`apps/authenticator`, ADR-0016), puntos 1-4 y 6 del hito cumplidos | ✅ **12 tests del puente Rust (RFC 6238/4226) + 52 tests Dart + analyze/clippy limpios + APK release construido** | ⚠️ | **abierto solo por hardware**: punto 5 (modo avión, reinicio, desinstalación, reloj ±45 s) y biometría real necesitan un dispositivo; iOS necesita macOS |
-| **H8** Operación | ⚠️ metrics/Helm/k6/runbooks sí; **SLOs medidos en contenedor sí**; **DR ensayado** (`tests/dr/rehearse_restore.sh`, RTO 37 s); caos **no** | ⚠️ | ❌ | **abierto** (falta ensayo de caos: KMS caído → fail-closed, y alertas disparadas a propósito) |
+| **H8** Operación | ✅ metrics/Helm/k6/runbooks; **SLOs medidos en contenedor sí**; **DR ensayado** (`tests/dr/rehearse_restore.sh`, RTO 37 s); **caos ensayado** (`tests/ops/chaos_drill.sh`, 6/6) | ✅ | ⚠️ | **abierto solo por lo externo**: runbooks sin revisión cruzada de otra persona, y las alertas sin destino de entrega real (receptor vacío a propósito) |
 | **H9** Certificación | ❌ (pentest, WebAuthn, FIPS) | ❌ | ❌ | **no empezado** |
 
 ## Bloqueos que impiden cerrar H2–H6
@@ -98,6 +98,43 @@ Los dos fallos de empaquetado que estas dos últimas aserciones evitan:
    del artefacto del nombre del *package*, y cargo normaliza los guiones a
    subrayados. Build verde, crash al arrancar. Se corrige renombrando el paquete
    a `bandall_authenticator_ffi` — el nombre con guiones es *load-bearing*.
+
+## Verificación del caos (2026-10-08)
+
+`tests/ops/chaos_drill.sh` levanta la pila de observabilidad completa
+(Prometheus + blackbox-exporter + Alertmanager + BandAll real sobre un volumen
+real) y comprueba, en este orden y todo en verde:
+
+| Comprobación | Resultado |
+|---|---|
+| Las reglas cargan y **todas están en `inactive`** de partida | ✅ |
+| `/readyz` responde 200 *antes* de romper nada | ✅ |
+| Con el servicio parado, `/readyz` se rechaza (no responde 200) | ✅ |
+| `BandAllNotReady` pasa a `firing` dentro de su ventana | ✅ |
+| La alerta **llega** a Alertmanager | ✅ |
+| La alerta vuelve a `inactive` tras recuperarse | ✅ |
+| Sin fichero de clave legible, el servicio no arranca (exit 2) | ✅ |
+
+Lo que el ensayo encontró y no era del stack, sino **mío**:
+
+1. **Prometheus rechazaba mi configuración**: `external_labels` no es un campo
+   válido en Prometheus 3.1 y el contenedor salía con código 2. No es un detalle
+   de estilo: la pila entera no levantaba.
+2. **`BandAllNoTraffic` estaba `pending` en línea base.** La regla era
+   `rate(verified[5m]) == 0`, que en un servicio sin logins se cumple igual que
+   en uno al que le han cortado el tráfico. La comprobación de línea base lo
+   detectó antes de romper nada, que es justo para lo que está: una alerta que
+   dispara en un despliegue nuevo es ruido. La versión que quedó compara la
+   última hora con la anterior, así que dice "hace una hora entraban y ahora
+   ninguno".
+3. **Puerto 9090 ocupado** por un contenedor de otro proyecto. Los puertos del
+   stack ahora son variables de entorno con valores por defecto fuera de los
+   habituales, para no llevarse mal con los vecinos.
+4. El servicio de la pila solo hacía `expose`, así que el ensayo no podía
+   alcanzar `/readyz` desde el host. Se publica.
+
+Detalle en [`docs/runbooks/chaos.md`](docs/runbooks/chaos.md), que incluye una
+tabla de qué hacer cuando cada alerta dispare.
 
 ## Orden de desbloqueo
 

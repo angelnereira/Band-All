@@ -1,8 +1,19 @@
 global:
+  # A short evaluation interval on purpose: the H8 chaos drill tears the service
+  # down and needs to see the alert move from `inactive` to `firing` within the
+  # time it takes to run one command. 15 s is the Prometheus default and is what
+  # production would use anyway; the `for:` durations in the rules carry the
+  # "do not fire on one bad scrape" property.
   scrape_interval: 15s
   evaluation_interval: 15s
 
-rule_files: []
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   - job_name: bandall
@@ -10,5 +21,26 @@ scrape_configs:
     static_configs:
       - targets: ["bandall:8080"]
 
-alerting:
-  alertmanagers: []
+  # Readiness as a number.
+  #
+  # `/metrics` cannot tell you the service is unusable: the counters keep being
+  # exported by a process that is up and whose database is gone. This is exactly
+  # what the DR rehearsal found, when `/readyz` answered 200 with the schema
+  # destroyed, so the one signal worth alerting on has to be probed from the
+  # outside, not read from a counter the unhealthy process happily renders.
+  #
+  # `blackbox_exporter` needs no configuration: the scheme, host and path travel
+  # as the target URL, so the whole job is relabelling.
+  - job_name: bandall-readyz
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ["http://bandall:8080/readyz"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

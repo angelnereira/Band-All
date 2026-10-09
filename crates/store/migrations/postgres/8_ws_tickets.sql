@@ -6,18 +6,25 @@
 -- bounds the ticket itself; `access_expires_at` is the hard ceiling for the
 -- connection, copied from the access token that obtained the ticket.
 --
--- Pure-chicken row semantics on purpose: like refresh tokens, the hash is the
--- primary key because nobody should ever hold the plaintext here. Auditing and
--- pruning happen in the API layer; this table stays the source of truth.
+-- Timestamps are `BIGINT`, like the rest of the schema, and that is not a
+-- stylistic choice: the store decodes them as `i64`. Postgres `INTEGER` is
+-- 32-bit and sqlx refuses to decode `INT4` into `i64`, which is what the first
+-- run against real Postgres found: the inserts succeeded and every read failed.
+-- SQLite is dynamically typed, so it hid the mistake completely. Fixed in place
+-- because this migration is unreleased; a shipped one would need an ALTER.
+--
+-- The hash is the primary key, like refresh tokens, because nobody should ever
+-- hold the plaintext here. Auditing and pruning happen in the API layer; this
+-- table stays the source of truth.
 CREATE TABLE ws_tickets (
     code_hash           TEXT PRIMARY KEY NOT NULL,
     session_id          TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
     tenant_id           TEXT NOT NULL,
     subject_id          TEXT NOT NULL,
-    access_expires_at   INTEGER NOT NULL,
-    created_at          INTEGER NOT NULL,
-    expires_at          INTEGER NOT NULL,
-    used_at             INTEGER
+    access_expires_at   BIGINT NOT NULL,
+    created_at          BIGINT NOT NULL,
+    expires_at          BIGINT NOT NULL,
+    used_at             BIGINT
 );
 
 -- The redeem path that matters: session revocation must refresh promptly, and

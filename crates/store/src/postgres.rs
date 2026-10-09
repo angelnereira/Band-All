@@ -791,7 +791,15 @@ mod tests {
             .await
             .expect("a migrated store is healthy");
 
-        sqlx::query("DROP TABLE factors")
+        // `CASCADE` is required on purpose: `recovery_codes` holds a foreign
+        // key onto `factors`, and Postgres refuses to drop a parent table
+        // that something still depends on. SQLite allows it because the
+        // connection does not enforce foreign keys, so the same statement
+        // behaves differently on the two engines — which is exactly why the
+        // test has to state what it means rather than rely on the engine.
+        // Dropping the table also drops the dependents, which is the
+        // intent here: the schema must be *gone*, not just empty.
+        sqlx::query("DROP TABLE factors CASCADE")
             .execute(store.pool())
             .await
             .unwrap();

@@ -775,6 +775,14 @@ mod tests {
             .await
             .expect("a migrated store is healthy");
 
+        // Deliberately NOT the same statement as the Postgres version: SQLite
+        // has no `CASCADE` keyword on `DROP TABLE` and rejects it as a syntax
+        // error. Both tests express the same intent — the schema must be gone,
+        // not merely empty — but the two SQL dialects spell it differently. The
+        // previous version used the identical statement in both and passed in
+        // SQLite while erroring in Postgres, because SQLite only refuses to drop
+        // a parent table when foreign keys are enforced, and this connection does
+        // not enforce them.
         sqlx::query("DROP TABLE factors")
             .execute(store.pool())
             .await

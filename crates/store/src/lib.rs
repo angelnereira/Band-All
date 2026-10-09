@@ -23,6 +23,8 @@ pub mod types;
 pub(crate) mod tests_battery;
 #[cfg(test)]
 pub(crate) mod tests_battery_ws;
+#[cfg(test)]
+pub(crate) mod tests_schema;
 
 pub use error::Error;
 pub use postgres::PgStore;

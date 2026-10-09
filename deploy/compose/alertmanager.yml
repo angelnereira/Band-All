@@ -1,0 +1,20 @@
+# Alertmanager configuration for the observability stack.
+#
+# `bandall-dev` is deliberately an **empty receiver**: it accepts an alert and
+# does nothing with it. That is honest for a stack whose purpose is to prove the
+# rules fire, which is what the H8 chaos drill checks (state goes `inactive` →
+# `firing`). Wiring a real delivery target — PagerDuty, Opsgenie, an email
+# relay — is a deployment decision, not a development one, and pretending
+# otherwise would look like alerting without being it.
+route:
+
+  receiver: bandall-dev
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: bandall-dev
+
+inhibit_rules: []
