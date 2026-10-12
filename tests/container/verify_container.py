@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import concurrent.futures
 import json
+import re
 import sys
 import time
 import unittest
@@ -337,6 +338,11 @@ class TestReplayAndWindow(unittest.TestCase):
         self.assertEqual(result.status, 401, f"window wider than three steps: {result}")
 
     def test_concurrent_verification_of_one_code_yields_one_success(self):
+        # One code, many simultaneous presenters: exactly one wins. When the
+        # same secret is deliberately shared between people (a room, a team
+        # device), this is the property that makes the others wait for the
+        # next step — by design, not a defect. `docs/guides-s2s-integration.md`
+        # documents the consequence and ADR-0019 weighs the alternatives.
         session = new_session().enroll()
         code = session.code()
 
@@ -621,6 +627,38 @@ class TestMetrics(unittest.TestCase):
         session.s2s_verify("000000")
         body = tenant_client().get("/metrics").body
         self.assertRegex(body, r"bandall_[a-z_]+", "no BandAll metrics exposed")
+
+    def _reason_counters(self) -> dict[str, int]:
+        body = tenant_client().get("/metrics").body
+        return {
+            match.group(1): int(match.group(2))
+            for match in re.finditer(
+                r'bandall_verify_denied_total\{reason="([a-z_]+)"\} (\d+)', body
+            )
+        }
+
+    def test_denial_reasons_and_latency_are_exposed(self):
+        session = new_session().enroll()
+
+        # The HTTP answers here are all uniform. The aggregate counters are
+        # where the difference survives: a typo, a replayed step and the
+        # latency of both routes, none of it per-tenant.
+        before = self._reason_counters()
+        self.assertEqual(session.s2s_verify("000000").status, 401)  # typo
+        self.assertEqual(session.mfa_verify().status, 200)          # fresh code, login route
+        self.assertEqual(session.s2s_verify().status, 401)          # replay of the consumed step
+        after = self._reason_counters()
+
+        self.assertGreaterEqual(
+            after.get("code_mismatch", 0), before.get("code_mismatch", 0) + 1
+        )
+        self.assertGreaterEqual(after.get("replay", 0), before.get("replay", 0) + 1)
+
+        body = tenant_client().get("/metrics").body
+        self.assertRegex(body, r"bandall_s2s_verify_latency_ms_count [1-9]\d*")
+        self.assertRegex(body, r"bandall_mfa_verify_latency_ms_count [1-9]\d*")
+        self.assertRegex(body, r"bandall_mfa_verify_latency_ms_bucket\{le=\"\+Inf\"\} [1-9]\d*")
+        self.assertRegex(body, r"bandall_s2s_verify_latency_ms_sum \d+")
 
 
 def build_suite(groups: list[str]) -> unittest.TestSuite:

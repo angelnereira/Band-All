@@ -6,6 +6,40 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ### Added
 
+- **Motivos internos de denegación y métricas de verificación** (issue de
+  integración real). `verify_code` devuelve ahora una taxonomía interna
+  (`Denial`: typo, fuera de ventana, replay, factor inexistente/inactivo,
+  fila corrupta) que **nunca cruza al cliente**: el 401 uniforme sigue siendo
+  byte a byte el mismo (test e2e que compara cuerpo, status y tipo de
+  problema). Lo que cambia es el lado del operador: `/metrics` gana
+  `bandall_verify_denied_total{reason=…}` agregado (sin etiquetas por tenant
+  o factor, para no convertir `/metrics` en oráculo de enumeración) y dos
+  histogramas de latencia hechos a mano, `bandall_mfa_verify_latency_ms` y
+  `bandall_s2s_verify_latency_ms` (buckets 1 ms–2,5 s, suma y cuenta; cero
+  dependencias nuevas). La clasificación "código correcto fuera de ventana"
+  la hace una sondea pura de ±10 pasos sin estado de antirreplay: etiqueta la
+  métrica sin poder aceptar ni consumir nada. Es el dato que la integración
+  con Gravital Talk pidió y que ADR-0009 necesita para decidirse.
+- **`docs/guides-s2s-integration.md`**: contrato para el cliente S2S — las
+  dos trampas (`enroll/confirm` consume el paso; verificar consume),
+  denegación uniforme y qué hacer en su lugar (cuenta atrás antes de pedir el
+  código), deriva (±1 paso con aprendizaje, acotado a ±5), reintentos
+  (verificar es una operación de consumo: un 200 perdido + reintento es
+  replay-401), timeouts contra el deadline propio, modelado sujeto/factor y
+  las tres propiedades del factor compartido, TLS y ejemplo curl reproducible.
+- **Tests**: `enroll_confirm_consumes_the_step_it_accepted` fija por test de
+  regresión la trampa documentada del confirm (antes solo estaba en el README);
+  `expired_wrong_and_replayed_codes_answer_identically` compara las respuestas
+  tal cual las ve el cliente; el contrato OpenAPI publicado lleva ya la nota
+  de consumo en `enroll/confirm` y la del 401 uniforme en las dos rutas de
+  verificación; la batería de contenedor comprueba los contadores por motivo
+  y los histogramas de extremo a extremo (**51 tests**, verde contra el
+  artefacto empaquetado en **SQLite y en Postgres con TLS**, 2026-10-09).
+- **ADR-0019** (propuesto, sin código): semántica del factor compartido —
+  varios participantes con el mismo secreto. Alternativas A (documentar),
+  B (N usos por paso), C (sin consumo, descartada) y D (resolverlo por
+  ADR-0018); recomendación A+D.
+
 - **Aviso de reloj desfasado y reloj monótono en la app** (H7, punto 4). El reloj
   de los códigos se ancla una vez y avanza con un `Stopwatch` monótono, así que
   una corrección NTP o un cambio de zona horaria ya no cambia los ocho códigos
@@ -68,6 +102,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
   y Helm lo montan ya.
 
 ### Fixed
+
+- **El `justfile` documentaba mal la variante con Postgres**: decía
+  `just verify-container postgres`, pero `tests/container/verify.sh`
+  rechaza el argumento sin guiones ("unknown option: postgres"), así que la
+  forma documentada no funcionaba. Corregido a `--postgres` (y `--bench`).
 
 - **`backup_rules.xml` no compilaba**: el dominio `cache` no existe en
   `full-backup-content` (sí en las reglas de extracción de Android 12+), y el

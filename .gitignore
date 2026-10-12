@@ -13,3 +13,5 @@ deploy/compose/demo-kek.bin
 deploy/compose/demo-audit-key.bin
 deploy/compose/obs-kek.bin
 deploy/compose/obs-audit-key.bin
+lcov.info
+

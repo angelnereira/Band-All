@@ -2,9 +2,18 @@
 //! and `mfa/recover` (recovery codes). All failures are uniform (`denied`):
 //! unknown factor, inactive factor, wrong code, replay and lockout-outside
 //! scope all answer identically.
+//!
+//! The uniform answer is a hard requirement, not an oversight. So that an
+//! operator can still tell a typo from a drifted clock, denials carry an
+//! internal [`Denial`] reason that feeds aggregate metrics and never crosses
+//! the HTTP boundary. The classification that separates them is a wide probe
+//! with no side effects: it cannot accept, consume a step or learn drift.
+
+use std::sync::Arc;
+use std::time::Instant;
 
 use axum::{Json, extract::State, http::HeaderMap};
-use bandall_totp_core::Step;
+use bandall_totp_core::{Secret, Step, TotpParams};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -21,6 +30,60 @@ use crate::state::AppState;
 const SLACK_STEPS: u64 = 1;
 /// Hard drift clamp.
 const DRIFT_MAX: i64 = 5;
+/// Radius, in steps, of the probe that classifies a denial for the aggregate
+/// metrics. `totp-core` caps its own window at this value, so a code that
+/// would need a wider radius fails closed into `CodeMismatch`: losing the
+/// label, never accepting the code.
+const PROBE_STEPS: u32 = 10;
+
+/// Internal denial reason. **Never serialized, never visible to a client:**
+/// every variant maps to the same uniform [`Error::denied`]. It exists so
+/// `/metrics` can separate "the user typed it wrong" from "the user was too
+/// slow" or "the client clock is off", which is what an operator needs and
+/// what the uniform answer deliberately hides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Denial {
+    /// No factor with that id (or unknown subject/tenant).
+    UnknownFactor,
+    /// Factor exists but is not active (pending, retired, consumed).
+    InactiveFactor,
+    /// Factor row, sealed secret or parameters could not be decoded: the
+    /// stored data is corrupt or tampered (fail closed, 401).
+    CorruptFactor,
+    /// Code matched nothing: typo, or a code from outside the probe radius.
+    CodeMismatch,
+    /// Right code, wrong moment: it matched a step the window refuses
+    /// (late code, or a client clock beyond tolerance).
+    OutOfWindow,
+    /// Right code, already consumed step (atomic anti-replay CAS refused it).
+    Replay,
+}
+
+impl Denial {
+    /// Stable metric label. Aggregate counters only: no tenant or factor
+    /// identifiers, or `/metrics` would become an enumeration oracle.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::UnknownFactor => "unknown_factor",
+            Self::InactiveFactor => "inactive_factor",
+            Self::CorruptFactor => "corrupt_factor",
+            Self::CodeMismatch => "code_mismatch",
+            Self::OutOfWindow => "out_of_window",
+            Self::Replay => "replay",
+        }
+    }
+}
+
+/// Outcome of a verification attempt. `Accepted` carries the consumed step;
+/// `Denied` carries the internal reason. Infrastructure failures stay in the
+/// `Err` channel and fail closed as a 500, exactly as before.
+enum Verified {
+    /// Code accepted: the step is consumed and this is the value to report.
+    Accepted(Step),
+    /// Uniform denial, with the internal reason for metrics.
+    Denied(Denial),
+}
 
 /// `POST /v1/mfa/verify` body (step two of login; primary credential already
 /// checked by the caller or IdP).
@@ -57,7 +120,7 @@ pub struct MfaVerifyResponse {
     request_body = MfaVerifyRequest,
     responses(
         (status = 200, description = "Code accepted, session issued", body = MfaVerifyResponse),
-        (status = 401, description = "Uniform denial")
+        (status = 401, description = "Uniform denial: unknown factor, wrong code, expired code and replayed code are indistinguishable", body = crate::error::Problem)
     )
 )]
 pub async fn mfa_verify(
@@ -65,6 +128,19 @@ pub async fn mfa_verify(
     headers: HeaderMap,
     peer: gates::PeerAddr,
     Json(body): Json<MfaVerifyRequest>,
+) -> Result<Json<MfaVerifyResponse>, Error> {
+    let started = Instant::now();
+    let metrics = Arc::clone(&state.metrics);
+    let result = mfa_verify_inner(state, headers, peer, body).await;
+    metrics.observe_mfa_verify(started.elapsed());
+    result
+}
+
+async fn mfa_verify_inner(
+    state: AppState,
+    headers: HeaderMap,
+    peer: gates::PeerAddr,
+    body: MfaVerifyRequest,
 ) -> Result<Json<MfaVerifyResponse>, Error> {
     let now = now_unix().map_err(|_| Error::denied())?;
     let mut keys = vec![
@@ -83,15 +159,23 @@ pub async fn mfa_verify(
         &body.code,
     )
     .await;
-    gates::record(&state, &keys, outcome.is_ok()).await?;
-    state.metrics.mfa(outcome.is_ok());
-    let event = if outcome.is_ok() {
+    let accepted = matches!(outcome, Ok(Verified::Accepted(_)));
+    gates::record(&state, &keys, accepted).await?;
+    state.metrics.mfa(accepted);
+    if let Ok(Verified::Denied(denial)) = &outcome {
+        state.metrics.verify_denied(*denial);
+    }
+    let event = if accepted {
         crate::audit::event::MFA_VERIFIED
     } else {
         crate::audit::event::MFA_DENIED
     };
     crate::audit::record(&state, &body.tenant_id, &body.subject_id, event).await?;
-    outcome?;
+    match outcome {
+        Ok(Verified::Accepted(_)) => {}
+        Ok(Verified::Denied(_)) => return Err(Error::denied()),
+        Err(failure) => return Err(failure),
+    }
     let keys = state.keys.clone();
     let pair = crate::token::issue_session(&state, &keys, &body.tenant_id, &body.subject_id, now)
         .await
@@ -134,7 +218,7 @@ pub struct S2sVerifyResponse {
     request_body = S2sVerifyRequest,
     responses(
         (status = 200, description = "Code accepted", body = S2sVerifyResponse),
-        (status = 401, description = "Uniform denial")
+        (status = 401, description = "Uniform denial: unknown factor, wrong code, expired code and replayed code are indistinguishable", body = crate::error::Problem)
     )
 )]
 pub async fn s2s_verify(
@@ -142,6 +226,19 @@ pub async fn s2s_verify(
     headers: HeaderMap,
     peer: gates::PeerAddr,
     Json(body): Json<S2sVerifyRequest>,
+) -> Result<Json<S2sVerifyResponse>, Error> {
+    let started = Instant::now();
+    let metrics = Arc::clone(&state.metrics);
+    let result = s2s_verify_inner(state, headers, peer, body).await;
+    metrics.observe_s2s_verify(started.elapsed());
+    result
+}
+
+async fn s2s_verify_inner(
+    state: AppState,
+    headers: HeaderMap,
+    peer: gates::PeerAddr,
+    body: S2sVerifyRequest,
 ) -> Result<Json<S2sVerifyResponse>, Error> {
     require_service_key(&state, &headers)?;
     let now = now_unix().map_err(|_| Error::denied())?;
@@ -161,18 +258,25 @@ pub async fn s2s_verify(
         &body.code,
     )
     .await;
-    gates::record(&state, &keys, outcome.is_ok()).await?;
-    let event = if outcome.is_ok() {
+    let accepted = matches!(outcome, Ok(Verified::Accepted(_)));
+    gates::record(&state, &keys, accepted).await?;
+    if let Ok(Verified::Denied(denial)) = &outcome {
+        state.metrics.verify_denied(*denial);
+    }
+    let event = if accepted {
         crate::audit::event::S2S_VERIFIED
     } else {
         crate::audit::event::S2S_DENIED
     };
     crate::audit::record(&state, &body.tenant_id, &body.subject_id, event).await?;
-    let step = outcome?;
-    Ok(Json(S2sVerifyResponse {
-        valid: true,
-        step: step.get(),
-    }))
+    match outcome {
+        Ok(Verified::Accepted(step)) => Ok(Json(S2sVerifyResponse {
+            valid: true,
+            step: step.get(),
+        })),
+        Ok(Verified::Denied(_)) => Err(Error::denied()),
+        Err(failure) => Err(failure),
+    }
 }
 
 /// `POST /v1/mfa/recover` body.
@@ -279,14 +383,16 @@ async fn recover_inner(
     }))
 }
 
-/// Core verification shared by user and S2S paths. Returns the consumed step.
+/// Core verification shared by user and S2S paths. Returns the consumed step
+/// on acceptance, or the internal denial reason; dependency failures stay in
+/// the `Err` channel (fail closed, 500).
 async fn verify_code(
     state: &AppState,
     tenant_id: &str,
     subject_id: &str,
     factor_id: &str,
     code: &str,
-) -> Result<Step, Error> {
+) -> Result<Verified, Error> {
     let factor = match state
         .store
         .get_factor(tenant_id, subject_id, factor_id)
@@ -295,11 +401,11 @@ async fn verify_code(
         Some(factor) => factor,
         None => {
             gates::dummy_verify();
-            return Err(Error::denied());
+            return Ok(Verified::Denied(Denial::UnknownFactor));
         }
     };
     if factor.status != "active" {
-        return Err(Error::denied());
+        return Ok(Verified::Denied(Denial::InactiveFactor));
     }
     let sealed = sealed_from_row(&factor).map_err(|_| Error::denied())?;
     let opened = state
@@ -317,8 +423,13 @@ async fn verify_code(
     let period = params.period().as_u64();
     // Only the three steps around the stored drift are probed, and the drift
     // is re-learned from the offset actually observed on success.
-    for candidate in candidate_steps(now, factor.drift(), period).ok_or_else(Error::denied)? {
-        let at = candidate.checked_mul(period).ok_or_else(Error::denied)?;
+    let Some(candidates) = candidate_steps(now, factor.drift(), period) else {
+        return Ok(Verified::Denied(Denial::CorruptFactor));
+    };
+    for candidate in candidates {
+        let Some(at) = candidate.checked_mul(period) else {
+            return Ok(Verified::Denied(Denial::CorruptFactor));
+        };
         match bandall_totp_core::totp::verify(&secret, params, code, at, 0, last) {
             Ok(step) => {
                 if !state
@@ -327,19 +438,40 @@ async fn verify_code(
                     .await
                     .map_err(|_| Error::denied())?
                 {
-                    return Err(Error::denied());
+                    return Ok(Verified::Denied(Denial::Replay));
                 }
-                let observed = observed_drift(step.get(), now, period).ok_or_else(Error::denied)?;
+                let Some(observed) = observed_drift(step.get(), now, period) else {
+                    return Ok(Verified::Denied(Denial::CorruptFactor));
+                };
                 if observed != factor.drift() {
                     state.store.record_drift(&factor.id, observed).await?;
                 }
-                return Ok(step);
+                return Ok(Verified::Accepted(step));
             }
             Err(bandall_totp_core::Error::CodeMismatch) => {}
-            Err(_) => return Err(Error::denied()),
+            Err(bandall_totp_core::Error::InvalidCode) => {}
+            Err(bandall_totp_core::Error::CodeReplayed) => {
+                return Ok(Verified::Denied(Denial::Replay));
+            }
+            Err(_) => return Ok(Verified::Denied(Denial::CorruptFactor)),
         }
     }
-    Err(Error::denied())
+    // Every candidate missed. Classify the miss for the aggregate counters
+    // only: the wide probe below is pure (no anti-replay state, no writes),
+    // so it labels the metric without changing the uniform 401 above it.
+    Ok(Verified::Denied(classify_denial(
+        &secret, params, code, now,
+    )))
+}
+
+/// Classifies a denial that already happened. Pure: reads the code against a
+/// wide window with no `last_accepted`, so it cannot accept a code, consume
+/// a step or learn drift — it only returns the label for the counter.
+fn classify_denial(secret: &Secret, params: TotpParams, code: &str, now: u64) -> Denial {
+    match bandall_totp_core::totp::verify(secret, params, code, now, PROBE_STEPS, None) {
+        Ok(_) => Denial::OutOfWindow,
+        Err(_) => Denial::CodeMismatch,
+    }
 }
 
 /// The only steps a code may match: the stored drift plus one step of slack on
@@ -373,7 +505,8 @@ fn observed_drift(step: u64, now: u64, period: u64) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DRIFT_MAX, candidate_steps, observed_drift};
+    use super::{DRIFT_MAX, Denial, candidate_steps, classify_denial, observed_drift};
+    use bandall_totp_core::{Secret, TotpParams, totp};
 
     const PERIOD: u64 = 30;
     const NOW: u64 = 1_700_000_000;
@@ -420,5 +553,61 @@ mod tests {
         assert_eq!(observed_drift(base + 99, NOW, PERIOD), Some(DRIFT_MAX));
         assert_eq!(observed_drift(base - 99, NOW, PERIOD), Some(-DRIFT_MAX));
         assert!(observed_drift(base, NOW, 0).is_none());
+    }
+
+    #[test]
+    fn every_denial_reason_has_a_distinct_stable_label() {
+        let all = [
+            Denial::UnknownFactor,
+            Denial::InactiveFactor,
+            Denial::CorruptFactor,
+            Denial::CodeMismatch,
+            Denial::OutOfWindow,
+            Denial::Replay,
+        ];
+        let mut labels: Vec<&str> = all.iter().map(|denial| denial.label()).collect();
+        labels.sort_unstable();
+        let unique = labels.len();
+        labels.dedup();
+        assert_eq!(labels.len(), unique, "two denial reasons share a label");
+        for label in labels {
+            assert!(!label.is_empty());
+            assert!(
+                label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_'),
+                "label {label} is not exposition-safe"
+            );
+        }
+    }
+
+    #[test]
+    fn classification_separates_late_codes_from_typos() {
+        let secret = Secret::new(vec![9u8; 32]).unwrap();
+        let params = TotpParams::default_params();
+        // Five steps out is refused by the three-step window, but the wide
+        // probe still recognises the code: a drifted or slow client, not a
+        // typo. This is the signal the uniform 401 cannot carry.
+        let drifted = totp::generate(&secret, params, NOW + 5 * PERIOD).unwrap();
+        assert_eq!(
+            classify_denial(&secret, params, &drifted, NOW),
+            Denial::OutOfWindow
+        );
+        let late = totp::generate(&secret, params, NOW - 5 * PERIOD).unwrap();
+        assert_eq!(
+            classify_denial(&secret, params, &late, NOW),
+            Denial::OutOfWindow
+        );
+        // Beyond the probe radius the code is simply wrong.
+        let ancient = totp::generate(&secret, params, NOW - 100 * PERIOD).unwrap();
+        assert_eq!(
+            classify_denial(&secret, params, &ancient, NOW),
+            Denial::CodeMismatch
+        );
+        // Malformed input classifies as a mismatch, never as a window issue.
+        assert_eq!(
+            classify_denial(&secret, params, "abc", NOW),
+            Denial::CodeMismatch
+        );
     }
 }

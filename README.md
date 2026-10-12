@@ -629,9 +629,10 @@ Concreto, y sin adornos. Ordenado por lo que bloquea más.
 | [`docs/masvs-review.md`](docs/masvs-review.md) | Autoevaluación OWASP MASVS (app móvil) |
 | [`docs/guides-forward-auth.md`](docs/guides-forward-auth.md) | nginx, Envoy, Traefik, SDKs y firmas |
 | [`docs/guides-web-and-mobile-sessions.md`](docs/guides-web-and-mobile-sessions.md) | Sesiones web y móvil |
+| [`docs/guides-s2s-integration.md`](docs/guides-s2s-integration.md) | Contrato para el cliente S2S: consumo, denegación uniforme, deriva, timeouts |
 | [`docs/runbooks/`](docs/runbooks) | Fuga de secretos, revocación, rotación, restauración, **caos** y **reversión** |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | SemVer y pipeline de release |
-| [`docs/adr/`](docs/adr) | 16 decisiones de diseño, con su porqué (0012 reservada) |
+| [`docs/adr/`](docs/adr) | 18 decisiones de diseño, con su porqué (0012 reservada) |
 
 Informa de vulnerabilidades según [`SECURITY.md`](SECURITY.md).
 Contribuye según [`CONTRIBUTING.md`](CONTRIBUTING.md).

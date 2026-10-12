@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{Json, extract::State, http::HeaderMap, response::IntoResponse};
 use bandall_api::{
     AppState, AuditChain,
     audit::verify_chain,
@@ -22,7 +22,10 @@ use bandall_api::{
     sigs::{SigsVerifyRequest, verify_signature},
     state::PolicyHandle,
     token::{RefreshRequest, RevokeRequest, jwks, refresh, revoke},
-    verify::{MfaVerifyRequest, RecoverRequest, S2sVerifyRequest, mfa_verify, recover, s2s_verify},
+    verify::{
+        MfaVerifyRequest, MfaVerifyResponse, RecoverRequest, S2sVerifyRequest, mfa_verify, recover,
+        s2s_verify,
+    },
 };
 use bandall_policy::Policy;
 use bandall_store::{SqliteStore, Store};
@@ -86,7 +89,9 @@ fn uri_secret(uri: &str) -> String {
         .to_string()
 }
 
-async fn enroll_active(state: &AppState, tenant_id: &str) -> (String, String, Secret) {
+/// Enrolment start only: the factor stays pending and the test holds the
+/// secret, so a test can choose *which* step confirms it.
+async fn enroll_started(state: &AppState, tenant_id: &str) -> (String, String, Secret) {
     let started = start(
         State(state.clone()),
         service_headers(),
@@ -110,16 +115,27 @@ async fn enroll_active(state: &AppState, tenant_id: &str) -> (String, String, Se
         .unwrap()
         .unwrap();
     let secret = Secret::from_base32(&uri_secret(&started.otpauth_uri)).unwrap();
-    let params = TotpParams::default_params();
-    let code = totp::generate(&secret, params, now_unix()).unwrap();
+    (started.factor_id, subject.id, secret)
+}
+
+/// Confirms a pending factor with the code for `at`.
+async fn confirm_code(
+    state: &AppState,
+    tenant_id: &str,
+    subject_id: &str,
+    factor_id: &str,
+    secret: &Secret,
+    at: u64,
+) {
+    let code = totp::generate(secret, TotpParams::default_params(), at).unwrap();
     let confirmed = confirm(
         State(state.clone()),
         HeaderMap::new(),
         PeerAddr(None),
         Json(EnrollConfirmRequest {
             tenant_id: tenant_id.to_string(),
-            subject_id: subject.id.clone(),
-            factor_id: started.factor_id.clone(),
+            subject_id: subject_id.to_string(),
+            factor_id: factor_id.to_string(),
             code,
         }),
     )
@@ -127,7 +143,55 @@ async fn enroll_active(state: &AppState, tenant_id: &str) -> (String, String, Se
     .unwrap()
     .0;
     assert_eq!(confirmed.recovery_codes.len(), 10);
-    (started.factor_id, subject.id, secret)
+}
+
+async fn enroll_active(state: &AppState, tenant_id: &str) -> (String, String, Secret) {
+    let (factor_id, subject_id, secret) = enroll_started(state, tenant_id).await;
+    confirm_code(
+        state,
+        tenant_id,
+        &subject_id,
+        &factor_id,
+        &secret,
+        now_unix(),
+    )
+    .await;
+    (factor_id, subject_id, secret)
+}
+
+/// One `mfa/verify` call, extracted so the denial tests read linearly.
+async fn verify_once(
+    state: &AppState,
+    tenant_id: &str,
+    subject_id: &str,
+    factor_id: &str,
+    code: &str,
+) -> Result<Json<MfaVerifyResponse>, bandall_api::Error> {
+    mfa_verify(
+        State(state.clone()),
+        HeaderMap::new(),
+        PeerAddr(None),
+        Json(MfaVerifyRequest {
+            tenant_id: tenant_id.to_string(),
+            subject_id: subject_id.to_string(),
+            factor_id: factor_id.to_string(),
+            code: code.to_string(),
+        }),
+    )
+    .await
+}
+
+/// Renders a denial exactly as a client sees it: status code plus the whole
+/// problem body. Two denials are indistinguishable only if these are equal,
+/// so the uniformity test compares the rendered answers, not the variants.
+async fn problem_of(
+    result: Result<Json<MfaVerifyResponse>, bandall_api::Error>,
+) -> (axum::http::StatusCode, String) {
+    let error = result.expect_err("denial expected");
+    let response = error.into_response();
+    let (parts, body) = response.into_parts();
+    let bytes = axum::body::to_bytes(body, usize::MAX).await.expect("body");
+    (parts.status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tokio::test]
@@ -208,6 +272,70 @@ async fn full_mfa_cycle() {
         .await
         .is_err()
     );
+}
+
+/// `enroll/confirm` consumes the step it accepted, so the same code cannot
+/// verify right after: that is a replay, not a second use. A client that
+/// confirms with the code on screen and immediately verifies with the same
+/// one gets stuck here, so the behaviour is pinned by test.
+#[tokio::test]
+async fn enroll_confirm_consumes_the_step_it_accepted() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_started(&state, &tenant).await;
+    let params = TotpParams::default_params();
+    let at = now_unix();
+
+    confirm_code(&state, &tenant, &subject_id, &factor_id, &secret, at).await;
+
+    // The confirming code is now spent, whatever the wall clock did in
+    // between: it either replays a consumed step or leaves the window.
+    let same_code = totp::generate(&secret, params, at).unwrap();
+    assert!(
+        verify_once(&state, &tenant, &subject_id, &factor_id, &same_code)
+            .await
+            .is_err(),
+        "confirm left its own step reusable"
+    );
+
+    // The next step verifies normally: the factor is active and usable.
+    let next_code = totp::generate(&secret, params, at + 30).unwrap();
+    assert!(
+        verify_once(&state, &tenant, &subject_id, &factor_id, &next_code)
+            .await
+            .is_ok()
+    );
+}
+
+/// The uniform denial, asserted on the wire: an expired code, a wrong code
+/// and a replayed code produce the same status and the same problem body.
+/// The internal reason counter differs; what the client sees does not.
+#[tokio::test]
+async fn expired_wrong_and_replayed_codes_answer_identically() {
+    let (state, tenant) = setup().await;
+    let (factor_id, subject_id, secret) = enroll_active(&state, &tenant).await;
+    let params = TotpParams::default_params();
+    let code = totp::generate(&secret, params, now_unix() + NOW_SKEW).unwrap();
+    assert!(
+        verify_once(&state, &tenant, &subject_id, &factor_id, &code)
+            .await
+            .is_ok()
+    );
+
+    let replayed =
+        problem_of(verify_once(&state, &tenant, &subject_id, &factor_id, &code).await).await;
+    let expired_code = totp::generate(&secret, params, now_unix() + 3600).unwrap();
+    let expired =
+        problem_of(verify_once(&state, &tenant, &subject_id, &factor_id, &expired_code).await)
+            .await;
+    let typo =
+        problem_of(verify_once(&state, &tenant, &subject_id, &factor_id, "000000").await).await;
+
+    assert_eq!(expired, typo, "expired and wrong codes are distinguishable");
+    assert_eq!(
+        expired, replayed,
+        "replay and wrong codes are distinguishable"
+    );
+    assert_eq!(expired.0, axum::http::StatusCode::UNAUTHORIZED);
 }
 
 /// Re-opens the factor secret through the vault (test-only plumbing).
