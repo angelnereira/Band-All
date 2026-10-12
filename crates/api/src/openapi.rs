@@ -98,4 +98,20 @@ mod tests {
             assert!(json.contains(path), "spec is missing {path}");
         }
     }
+
+    /// The two properties an integrator must not have to discover the hard
+    /// way: denial is uniform, and the confirming code is consumed. Both are
+    /// part of the published contract, not of the README only.
+    #[test]
+    fn spec_documents_the_uniform_denial_and_the_consumed_step() {
+        let json = serde_json::to_string(&ApiDoc::openapi()).unwrap();
+        assert!(
+            json.contains("Uniform denial: unknown factor, wrong code"),
+            "verify lost the uniform-denial note"
+        );
+        assert!(
+            json.contains("The confirming code is consumed"),
+            "enroll/confirm lost the consumed-step note"
+        );
+    }
 }

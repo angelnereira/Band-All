@@ -166,3 +166,6 @@
 7. **Resincronización de deriva** (ADR-0009, T3): reenrolado, dos códigos
    consecutivos, ventana amplia con presupuesto o resync remota S2S.
    Recomendación: dos códigos consecutivos, sin sesión en el primero.
+8. **Semántica del factor compartido** (ADR-0019): varios participantes
+   conociendo el mismo secreto. Estado: A+D propuestos (documentar + resolver
+   por ADR-0018); B (N usos por paso) solo con demanda repetida.

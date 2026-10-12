@@ -207,9 +207,15 @@ pub struct EnrollConfirmResponse {
 }
 
 /// Confirms enrolment with the first code and issues recovery codes.
+///
+/// The confirming code is consumed with the same atomic anti-replay claim as
+/// any verification: verifying with that same code afterwards is a replay and
+/// is denied. A client must confirm with the code on screen and then wait for
+/// the next one.
 #[utoipa::path(
     post,
     path = "/v1/factors/enroll/confirm",
+    description = "Activates a pending factor with its first code. The confirming code is consumed (atomic anti-replay): a later verification with that same code is a replay and is denied, so the client must use the next code.",
     request_body = EnrollConfirmRequest,
     responses(
         (status = 200, description = "Factor activated", body = EnrollConfirmResponse),

@@ -2,7 +2,7 @@
 
 Fuente: `BANDALL_ROADMAP.md` §3 y `docs/VERIFICATION.md`. Regla del repo: un
 hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
-2026-10-08.**
+2026-10-09.**
 
 | Hito | Código | Tests ejecutados | Gate | Estado |
 |---|---|---|---|---|
@@ -12,7 +12,7 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
 | **H3** API MFA | ✅ | ✅ 29 unit + 11 E2E | ✅ | **cerrado** (sujeto a CI verde) |
 | **H4** Tokens | ✅ | ✅ tokens (8); E2E de rotación verde, **con Postgres** | ⚠️ | **abierto** (ítem 5 web: entregado como guía + ADR-0011, sin cookies en el servidor) |
 | **H5** Hardening | ✅ | ✅ policy (8), sigs (4), auditoría (T4), **secretos en logs (2)**, **fuzz HTTP 1 h**; **cadena con clave verificada en el contenedor**: verde y BROKEN tras alterar una fila | ⚠️ | **abierto** (falta CI, pentest y decisión de ADR-0009) |
-| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (`bandall-embedded`, ADR-0014), **50 tests funcionales + 16 de firmas HMAC contra el contenedor**, scopes y JWKS remoto (ADR-0013), **conexiones largas WS/gRPC** (ADR-0017) | ⚠️ | **abierto** (ADR-0013 resuelve el choque de scopes; falta CI y el gate de la demo legacy levantado desde cero) |
+| **H6** Integración | ✅ | ✅ sdk-axum (2), sigs (4), **SDK TS/Python/Go/C# (4 SDKs, mismos vectores)**, demo forward-auth funcionando en Docker, **modo embebido** (`bandall-embedded`, ADR-0014), **51 tests funcionales + 16 de firmas HMAC contra el contenedor**, scopes y JWKS remoto (ADR-0013), **conexiones largas WS/gRPC** (ADR-0017) | ⚠️ | **abierto** (ADR-0013 resuelve el choque de scopes; falta CI y el gate de la demo legacy levantado desde cero) |
 | **H7** App autenticadora | ✅ app Flutter completa (`apps/authenticator`, ADR-0016), puntos 1-4 y 6 del hito cumplidos | ✅ **12 tests del puente Rust (RFC 6238/4226) + 52 tests Dart + analyze/clippy limpios + APK release construido** | ⚠️ | **abierto solo por hardware**: punto 5 (modo avión, reinicio, desinstalación, reloj ±45 s) y biometría real necesitan un dispositivo; iOS necesita macOS |
 | **H8** Operación | ✅ metrics/Helm/k6/runbooks; **SLOs medidos en contenedor sí**; **DR ensayado** (`tests/dr/rehearse_restore.sh`, RTO 37 s); **caos ensayado** (`tests/ops/chaos_drill.sh`, 6/6) | ✅ | ⚠️ | **abierto solo por lo externo**: runbooks sin revisión cruzada de otra persona, y las alertas sin destino de entrega real (receptor vacío a propósito) |
 | **H9** Certificación | ❌ (pentest, WebAuthn, FIPS) | ❌ | ❌ | **no empezado** |
@@ -33,7 +33,7 @@ hito se cierra solo cuando su gate se cumple por completo. **Actualizado:
    carga simulada se ejecutan hoy contra el contenedor real
    (`tests/container/`, ver §Verificación del contenedor).
 
-## Verificación del contenedor (2026-10-08)
+## Verificación del contenedor (2026-10-09)
 
 `tests/container/verify.sh` empaqueta el proyecto y verifica **el artefacto**,
 no el árbol de fuentes. Resultado de la ronda, en las dos configuraciones de
@@ -46,10 +46,17 @@ base de datos:
 | Fail-closed de configuración (2 casos) | ✅ | ✅ |
 | `migrate` + `serve` + `/readyz` + `healthcheck` | ✅ | ✅ |
 | Hardening en runtime (read-only, `cap_drop`, core=0) | ✅ | ✅ |
-| Suite funcional y de seguridad (**50 tests**, +5 de tickets de conexión) | ✅ | ✅ |
+| Suite funcional y de seguridad (**51 tests**, +5 de tickets de conexión) | ✅ | ✅ |
 | Firmas HMAC (**16 tests**) | ✅ | ✅ |
 | Sin secretos ni pánicos en los logs | ✅ | ✅ |
 | Cadena de auditoría: verde, y BROKEN tras alterar una fila | ✅ | ✅ |
+
+El test 51 es `test_denial_reasons_and_latency_are_exposed`: dentro del
+contenedor, un typo cuenta en
+`bandall_verify_denied_total{reason="code_mismatch"}`, un replay en
+`reason="replay"`, y las dos rutas de verificación dejan observaciones en sus
+histogramas `bandall_*_verify_latency_ms`. Ninguno de esos números es visible
+para el cliente: el 401 sigue siendo uniforme.
 
 Carga simulada (`--bench`, clientes mock desechables, p50/p95/p99 medidos):
 

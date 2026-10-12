@@ -48,8 +48,8 @@ audit:
 # and the audit chain. Requires a running Docker daemon.
 #
 #   just verify-container              # SQLite in a throwaway volume
-#   just verify-container postgres     # same suite against Postgres over TLS
-#   just verify-container bench        # plus simulated load (SLO baseline)
+#   just verify-container --postgres   # same suite against Postgres over TLS
+#   just verify-container --bench      # plus simulated load (SLO baseline)
 #
 # Everything it creates dies with the run; nothing it needs survives it.
 verify-container *ARGS:
