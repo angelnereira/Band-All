@@ -95,6 +95,7 @@ pub async fn verify_signature(
     let opened = state
         .vault
         .open(&sealed, "api-clients", &client.tenant_id, &client.key_id)
+        .await
         .map_err(|_| Error::denied())?;
     let request = bandall_sigs::SignedRequest {
         method: body.method,

@@ -141,12 +141,15 @@ pub async fn start(
 
     let secret = Secret::generate_for(algorithm)?;
     let factor_id = new_factor_id();
-    let sealed = state.vault.seal(
-        &body.tenant_id,
-        &subject.id,
-        &factor_id,
-        secret.expose_secret_bytes(),
-    )?;
+    let sealed = state
+        .vault
+        .seal(
+            &body.tenant_id,
+            &subject.id,
+            &factor_id,
+            secret.expose_secret_bytes(),
+        )
+        .await?;
     state
         .store
         .create_factor(NewFactor {
@@ -154,7 +157,7 @@ pub async fn start(
             tenant_id: body.tenant_id.clone(),
             subject_id: subject.id.clone(),
             status: "pending".to_string(),
-            secret_version: 1,
+            secret_version: i32::from(sealed.version()),
             kek_id: state.vault.kek_id().to_string(),
             wrapped_dek: sealed.wrapped_dek().ciphertext().to_vec(),
             wrapped_nonce: sealed.wrapped_dek().nonce().to_vec(),
@@ -274,6 +277,7 @@ async fn confirm_inner(
             &body.subject_id,
             &body.factor_id,
         )
+        .await
         .map_err(|_| Error::denied())?;
     let secret = {
         use secrecy::ExposeSecret;

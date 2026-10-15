@@ -143,12 +143,15 @@ impl Embedded {
 
         let secret = Secret::generate_for(Algorithm::Sha256)?;
         let factor_id = new_factor_id();
-        let sealed = self.vault.seal(
-            tenant,
-            &subject.id,
-            &factor_id,
-            secret.expose_secret_bytes(),
-        )?;
+        let sealed = self
+            .vault
+            .seal(
+                tenant,
+                &subject.id,
+                &factor_id,
+                secret.expose_secret_bytes(),
+            )
+            .await?;
 
         let params = TotpParams::default_params();
         let entry = Otpauth::new(params, secret, issuer.to_string(), account.to_string())?;
@@ -158,7 +161,7 @@ impl Embedded {
                 tenant_id: tenant.to_string(),
                 subject_id: subject.id.clone(),
                 status: "pending".to_string(),
-                secret_version: 1,
+                secret_version: i32::from(sealed.version()),
                 kek_id: self.vault.kek_id().to_string(),
                 wrapped_dek: sealed.wrapped_dek().ciphertext().to_vec(),
                 wrapped_nonce: sealed.wrapped_dek().nonce().to_vec(),
@@ -203,7 +206,8 @@ impl Embedded {
         }
         let opened = self
             .vault
-            .open(&sealed_from_row(&factor)?, tenant, &subject, factor_id)?;
+            .open(&sealed_from_row(&factor)?, tenant, &subject, factor_id)
+            .await?;
         let secret = Secret::new(opened.expose_secret().to_vec())?;
         let params = params_from_row(&factor)?;
         let step = totp::verify(&secret, params, code, unix_secs, 1, None)?;
@@ -246,7 +250,8 @@ impl Embedded {
         }
         let opened = self
             .vault
-            .open(&sealed_from_row(&factor)?, tenant, &subject, factor_id)?;
+            .open(&sealed_from_row(&factor)?, tenant, &subject, factor_id)
+            .await?;
         let secret = Secret::new(opened.expose_secret().to_vec())?;
         let params = params_from_row(&factor)?;
         let step = totp::verify(&secret, params, code, unix_secs, 1, None)?;

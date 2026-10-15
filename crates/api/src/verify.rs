@@ -411,6 +411,7 @@ async fn verify_code(
     let opened = state
         .vault
         .open(&sealed, tenant_id, subject_id, factor_id)
+        .await
         .map_err(|_| Error::denied())?;
     let secret = wrap_secret(opened.expose_secret()).map_err(|_| Error::denied())?;
     let params = params_from_row(&factor).map_err(|_| Error::denied())?;

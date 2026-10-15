@@ -402,7 +402,7 @@ fn apikey_create(
     runtime.block_on(async {
         match bandall_api::server::build_state(&config).await {
             Ok((state, _)) => {
-                let sealed = match state.vault.seal("api-clients", tenant, &key_id, &raw) {
+                let sealed = match state.vault.seal("api-clients", tenant, &key_id, &raw).await {
                     Ok(sealed) => sealed,
                     Err(e) => {
                         eprintln!("cannot seal key: {e}");
@@ -415,7 +415,7 @@ fn apikey_create(
                     .create_api_client(bandall_api::NewApiClient {
                         key_id: key_id.clone(),
                         tenant_id: tenant.to_string(),
-                        sealed_version: 1,
+                        sealed_version: i32::from(sealed.version()),
                         kek_id: state.vault.kek_id().to_string(),
                         wrapped_dek: sealed.wrapped_dek().ciphertext().to_vec(),
                         wrapped_nonce: sealed.wrapped_dek().nonce().to_vec(),

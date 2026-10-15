@@ -4,11 +4,14 @@
 //! PKCS#11) implement the same trait later; `LocalKms` is for development and
 //! air-gapped deployments only.
 
+use std::future::Future;
+use std::pin::Pin;
+
 use chacha20poly1305::{
     XChaCha20Poly1305,
     aead::{Aead, KeyInit, Payload},
 };
-use secrecy::{ExposeSecret, SecretBox};
+use secrecy::{ExposeSecret, SecretBox, zeroize::Zeroizing};
 
 use crate::error::Error;
 
@@ -16,6 +19,9 @@ use crate::error::Error;
 const KEK_LEN: usize = 32;
 /// Wrapping nonce length in bytes (XChaCha).
 const WRAP_NONCE_LEN: usize = 24;
+
+/// Boxed pinned future for asynchronous KMS operations without external async trait macros.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// A wrapped (encrypted) data-encryption key.
 #[derive(Debug, Clone)]
@@ -51,10 +57,13 @@ pub trait KmsProvider: Send + Sync {
     fn key_id(&self) -> &str;
 
     /// Wraps a data-encryption key under this KEK.
-    fn wrap_dek(&self, dek: &[u8]) -> Result<WrappedDek, Error>;
+    fn wrap_dek<'a>(&'a self, dek: &'a [u8]) -> BoxFuture<'a, Result<WrappedDek, Error>>;
 
     /// Unwraps a data-encryption key. Failures are uniform.
-    fn unwrap_dek(&self, wrapped: &WrappedDek) -> Result<SecretBox<Vec<u8>>, Error>;
+    fn unwrap_dek<'a>(
+        &'a self,
+        wrapped: &'a WrappedDek,
+    ) -> BoxFuture<'a, Result<Zeroizing<Vec<u8>>, Error>>;
 }
 
 /// File-backed KMS for development and offline deployments.
@@ -106,45 +115,53 @@ impl KmsProvider for LocalKms {
         &self.id
     }
 
-    fn wrap_dek(&self, dek: &[u8]) -> Result<WrappedDek, Error> {
-        let cipher = self.cipher()?;
-        let nonce_bytes = random_bytes(WRAP_NONCE_LEN)?;
-        let nonce_array: [u8; WRAP_NONCE_LEN] = nonce_bytes
-            .try_into()
-            .map_err(|_| Error::EncryptionFailed)?;
-        let ciphertext = cipher
-            .encrypt(
-                chacha20poly1305::XNonce::from_slice(&nonce_array),
-                Payload {
-                    msg: dek,
-                    aad: self.id.as_bytes(),
-                },
-            )
-            .map_err(|_| Error::EncryptionFailed)?;
-        Ok(WrappedDek {
-            nonce: nonce_array,
-            ciphertext,
+    fn wrap_dek<'a>(&'a self, dek: &'a [u8]) -> BoxFuture<'a, Result<WrappedDek, Error>> {
+        Box::pin(async move {
+            let cipher = self.cipher()?;
+            let nonce_bytes = random_bytes(WRAP_NONCE_LEN)?;
+            let nonce_array: [u8; WRAP_NONCE_LEN] = nonce_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| Error::EncryptionFailed)?;
+            let ciphertext = cipher
+                .encrypt(
+                    chacha20poly1305::XNonce::from_slice(&nonce_array),
+                    Payload {
+                        msg: dek,
+                        aad: self.id.as_bytes(),
+                    },
+                )
+                .map_err(|_| Error::EncryptionFailed)?;
+            Ok(WrappedDek {
+                nonce: nonce_array,
+                ciphertext,
+            })
         })
     }
 
-    fn unwrap_dek(&self, wrapped: &WrappedDek) -> Result<SecretBox<Vec<u8>>, Error> {
-        let cipher = self.cipher()?;
-        let dek = cipher
-            .decrypt(
-                chacha20poly1305::XNonce::from_slice(&wrapped.nonce),
-                Payload {
-                    msg: &wrapped.ciphertext,
-                    aad: self.id.as_bytes(),
-                },
-            )
-            .map_err(|_| Error::DecryptionFailed)?;
-        Ok(SecretBox::new(Box::new(dek)))
+    fn unwrap_dek<'a>(
+        &'a self,
+        wrapped: &'a WrappedDek,
+    ) -> BoxFuture<'a, Result<Zeroizing<Vec<u8>>, Error>> {
+        Box::pin(async move {
+            let cipher = self.cipher()?;
+            let dek = cipher
+                .decrypt(
+                    chacha20poly1305::XNonce::from_slice(&wrapped.nonce),
+                    Payload {
+                        msg: &wrapped.ciphertext,
+                        aad: self.id.as_bytes(),
+                    },
+                )
+                .map_err(|_| Error::DecryptionFailed)?;
+            Ok(Zeroizing::new(dek))
+        })
     }
 }
 
 /// Random bytes from the OS CSPRNG.
-fn random_bytes(len: usize) -> Result<Vec<u8>, Error> {
-    let mut bytes = vec![0u8; len];
+fn random_bytes(len: usize) -> Result<Zeroizing<Vec<u8>>, Error> {
+    let mut bytes = Zeroizing::new(vec![0u8; len]);
     getrandom::getrandom(&mut bytes).map_err(|_| Error::Random)?;
     Ok(bytes)
 }
@@ -178,13 +195,12 @@ mod tests {
         LocalKms::from_bytes("test-kek".to_string(), vec![7u8; 32]).unwrap()
     }
 
-    #[test]
-    fn wrap_round_trip() {
-        use secrecy::ExposeSecret;
+    #[tokio::test]
+    async fn wrap_round_trip() {
         let kms = test_kms();
-        let wrapped = kms.wrap_dek(b"data-encryption-key").unwrap();
-        let back = kms.unwrap_dek(&wrapped).unwrap();
-        assert_eq!(back.expose_secret(), b"data-encryption-key");
+        let wrapped = kms.wrap_dek(b"data-encryption-key").await.unwrap();
+        let back = kms.unwrap_dek(&wrapped).await.unwrap();
+        assert_eq!(&*back, b"data-encryption-key");
     }
 
     #[test]
@@ -192,11 +208,11 @@ mod tests {
         assert!(LocalKms::from_bytes("x".to_string(), vec![0u8; 16]).is_err());
     }
 
-    #[test]
-    fn wrong_kek_fails_closed() {
+    #[tokio::test]
+    async fn wrong_kek_fails_closed() {
         let kms = test_kms();
-        let wrapped = kms.wrap_dek(b"dek").unwrap();
+        let wrapped = kms.wrap_dek(b"dek").await.unwrap();
         let other = LocalKms::from_bytes("other".to_string(), vec![9u8; 32]).unwrap();
-        assert!(other.unwrap_dek(&wrapped).is_err());
+        assert!(other.unwrap_dek(&wrapped).await.is_err());
     }
 }
